@@ -230,9 +230,10 @@ handle_upstream_header(Endpoint, UpCodec, S) ->
             EndpointStr = inet:ntoa(Endpoint),
             lager:info("Connected to ~s:~p", [EndpointStr, 443]),
             ok = gen_tcp:send(Sock, <<239>>),
-            {ok, S#state{stage = tunnel,
-                         down_sock = Sock,
-                         up_codec = UpCodec}};
+            {ok, switch_timer(S#state{stage = tunnel,
+                                      down_sock = Sock,
+                                      up_codec = UpCodec},
+                              hibernate)};
         {error, _Reason} = Err ->
             Err
     end.

@@ -11,6 +11,10 @@
     stdlib
    ]},
   {env,[
+        {init_timeout_sec, 60},
+        {hibernate_timeout_sec, 60},
+        {ready_timeout_sec, 1200},
+
         {ip, {0, 0, 0, 0}},
         {ports, [{mtp_handler, 4430}]},
         {num_acceptors, 60},

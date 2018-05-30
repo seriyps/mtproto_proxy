@@ -42,6 +42,13 @@ Stop proxy started in background
 ./_build/default/rel/mtp_proxy/bin/mtp_proxy stop
 ```
 
+Settings
+--------
+
+See `src/mtproto_proxy.app.src`.
+
+Secret key will be printed on start.
+
 Helpers
 -------
 
