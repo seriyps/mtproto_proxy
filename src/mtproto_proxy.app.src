@@ -1,0 +1,24 @@
+{application, mtproto_proxy,
+ [{description, "An OTP application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, { mtproto_proxy_app, []}},
+  {applications,
+   [lager,
+    ranch,
+    crypto,
+    kernel,
+    stdlib
+   ]},
+  {env,[
+        {ip, {0, 0, 0, 0}},
+        {ports, [{mtp_handler, 4430}]},
+        {num_acceptors, 60},
+        {max_connections, 1024},
+        {secret, <<15,61,100,92,77,206,249,22,29,186,62,205,196,61,65,194>>}]},
+  {modules, []},
+
+  {maintainers, []},
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
