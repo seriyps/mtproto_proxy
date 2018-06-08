@@ -16,10 +16,14 @@
         {ready_timeout_sec, 1200},
 
         {ip, {0, 0, 0, 0}},
-        {ports, [{mtp_handler, 4430}]},
+        %% {external_ip, "YOUR.SERVER.EXTERNAL.IP"},
+        {ports, [#{name => mtp_handler,
+                   port => 1443,
+                   secret => <<208,214,225,17,186,218,85,17,252,206,149,132,222,173,190,239>>,
+                   tag => <<220,190,143,20,147,250,76,217,171,48,8,145,192,181,179,38>>}]},
         {num_acceptors, 60},
-        {max_connections, 1024},
-        {secret, <<15,61,100,92,77,206,249,22,29,186,62,205,196,61,65,194>>}]},
+        {max_connections, 20480}
+       ]},
   {modules, []},
 
   {maintainers, []},

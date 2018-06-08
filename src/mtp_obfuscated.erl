@@ -6,11 +6,17 @@
 %%% Created : 29 May 2018 by Sergey <me@seriyps.ru>
 
 -module(mtp_obfuscated).
--export([new/0,
-         new/1,
+-behaviour(mtp_layer).
+-export([create/0,
+         create/1,
          from_header/2,
+         new/4,
          encrypt/2,
-         decrypt/2]).
+         decrypt/2,
+         try_decode_packet/2,
+         encode_packet/2
+        ]).
+-export([bin_rev/1]).
 
 -export_type([codec/0]).
 
@@ -19,36 +25,26 @@
          decrypt :: any()                       % aes state
         }).
 
--define(ENDPOINTS, {
-          {149, 154, 175, 50},
-          {149, 154, 167, 51},
-          {149, 154, 175, 100},
-          {149, 154, 167, 91},
-          {149, 154, 171, 5}
-         }).
 -define(APP, mtproto_proxy).
-%% -define(DBG(Fmt, Args), io:format(user, Fmt, Args)).
--define(DBG(_F, _A), ok).
 
 -opaque codec() :: #st{}.
 
 %% @doc Creates new obfuscated stream (usual format)
--spec new() -> {ok, Header :: binary(), codec()}.
-new() ->
-    new(crypto:strong_rand_bytes(60)).
+-spec create() -> {ok, Header :: binary(), codec()}.
+create() ->
+    create(crypto:strong_rand_bytes(60)).
 
--spec new(binary()) -> {ok, Header :: binary(), codec()}.
-new(<<Left:56/binary, Right:4/binary>>) ->
+-spec create(binary()) -> {ok, Header :: binary(), codec()}.
+create(<<Left:56/binary, Right:4/binary>>) ->
     DownHeader = <<Left/binary,
                    16#ef, 16#ef, 16#ef, 16#ef,
                    Right/binary>>,
     new2(DownHeader).
 
 new2(<<Left:56/binary, _/binary>> = DownHeader) ->
-    Encrypt = init_down_encrypt(DownHeader),
-    Decrypt = init_down_decrypt(DownHeader),
-    St = #st{decrypt = Decrypt,
-             encrypt = Encrypt},
+    {EncKey, EncIV} = init_down_encrypt(DownHeader),
+    {DecKey, DecIV} = init_down_decrypt(DownHeader),
+    St = new(EncKey, EncIV, DecKey, DecIV),
     {<<_:56/binary, Rep:8/binary, _/binary>>, St1} = encrypt(DownHeader, St),
     {ok,
      <<Left/binary, Rep/binary>>,
@@ -57,30 +53,30 @@ new2(<<Left:56/binary, _/binary>> = DownHeader) ->
 init_down_decrypt(<<_:8/binary, ToRev:48/binary, _/binary>>) ->
     Reversed = bin_rev(ToRev),
     <<KeyRev:32/binary, RevIV:16/binary>> = Reversed,
-    ?DBG("down-DEC Key: ~w;~nIV: ~w~n", [KeyRev, RevIV]),
-    crypto:stream_init('aes_ctr', KeyRev, RevIV).
+    {KeyRev, RevIV}.
 
 init_down_encrypt(<<_:8/binary, Key:32/binary, IV:16/binary, _/binary>>) ->
-    ?DBG("down-ENC Key: ~w;~nIV: ~w~n", [Key, IV]),
-    crypto:stream_init('aes_ctr', Key, IV).
+    {Key, IV}.
 
 
 %% @doc creates new obfuscated stream (MTProto proxy format)
 -spec from_header(binary(), binary()) -> {ok, inet:ip4_address(), codec()}.
 from_header(Header, Secret) when byte_size(Header) == 64  ->
-    Encrypt = init_up_encrypt(Header, Secret),
-    Decrypt = init_up_decrypt(Header, Secret),
-    {Decrypt1, <<_:56/binary, Bin1:8/binary, _/binary>>} = crypto:stream_encrypt(Decrypt, Header),
+    {EncKey, EncIV} = init_up_encrypt(Header, Secret),
+    {DecKey, DecIV} = init_up_decrypt(Header, Secret),
+    St = new(EncKey, EncIV, DecKey, DecIV),
+    {<<_:56/binary, Bin1:8/binary, _/binary>>, St1} = decrypt(Header, St),
     <<HeaderPart:56/binary, _/binary>> = Header,
     NewHeader = <<HeaderPart/binary, Bin1/binary>>,
     case NewHeader of
         <<_:56/binary, 16#ef, 16#ef, 16#ef, 16#ef, _/binary>> ->
-            Endpoint = get_endpoint(NewHeader),
-            {ok, Endpoint, #st{decrypt = Decrypt1,
-                               encrypt = Encrypt}};
+            DcId = get_dc(NewHeader),
+            {ok, DcId, St1};
         <<_:56/binary, 16#ee, 16#ee, 16#ee, 16#ee, _/binary>> ->
+            metric:count_inc([?APP, protocol_error, total], 1, #{labels => [intermediate]}),
             {error, {protocol_not_supported, intermediate}};
         _ ->
+            metric:count_inc([?APP, protocol_error, total], 1, #{labels => [unknown]}),
             {error, unknown_protocol}
     end.
 
@@ -90,30 +86,44 @@ init_up_encrypt(Bin, Secret) ->
     <<KeyRev:32/binary, RevIV:16/binary, _/binary>> = Rev,
     %% <<_:32/binary, RevIV:16/binary, _/binary>> = Bin,
     KeyRevHash = crypto:hash('sha256', <<KeyRev/binary, Secret/binary>>),
-    ?DBG("up-ENC Key: ~p;~nIV: ~p~n", [KeyRevHash, RevIV]),
-    crypto:stream_init('aes_ctr', KeyRevHash, RevIV).
+    {KeyRevHash, RevIV}.
 
 init_up_decrypt(Bin, Secret) ->
-    <<_:8/binary, Key:32/binary, _/binary>> = Bin,
-    <<_:40/binary, IV:16/binary, _/binary>> = Bin,
+    <<_:8/binary, Key:32/binary, IV:16/binary, _/binary>> = Bin,
     KeyHash = crypto:hash('sha256', <<Key/binary, Secret/binary>>),
-    ?DBG("up-DEC Key: ~p;~nIV: ~p~n", [KeyHash, IV]),
-    crypto:stream_init('aes_ctr', KeyHash, IV).
+    {KeyHash, IV}.
 
-get_endpoint(<<_:60/binary, DcId:16/signed-little-integer, _/binary>>) ->
-    element(abs(DcId), ?ENDPOINTS).
+get_dc(<<_:60/binary, DcId:16/signed-little-integer, _/binary>>) ->
+    abs(DcId).
 
+
+new(EncKey, EncIV, DecKey, DecIV) ->
+    #st{decrypt = crypto:stream_init('aes_ctr', DecKey, DecIV),
+        encrypt = crypto:stream_init('aes_ctr', EncKey, EncIV)}.
+
+-spec encrypt(iodata(), codec()) -> {binary(), codec()}.
 encrypt(Data, #st{encrypt = Enc} = St) ->
     {Enc1, Encrypted} = crypto:stream_encrypt(Enc, Data),
-    ?DBG("encrypt: IN:~p~nOUT:~p~n", [Data, Encrypted]),
     {Encrypted, St#st{encrypt = Enc1}}.
 
+-spec decrypt(iodata(), codec()) -> {binary(), codec()}.
 decrypt(Encrypted, #st{decrypt = Dec} = St) ->
     {Dec1, Data} = crypto:stream_encrypt(Dec, Encrypted),
-    ?DBG("decrypt: IN:~p~nOUT:~p~n", [Encrypted, Data]),
     {Data, St#st{decrypt = Dec1}}.
+
+%% To comply with mtp_layer interface
+-spec try_decode_packet(iodata(), codec()) -> {ok, Decoded :: binary(), codec()}
+                                                  | {incomplete, codec()}.
+try_decode_packet(Encrypted, St) ->
+    {Decrypted, St1} = decrypt(Encrypted, St),
+    {ok, Decrypted, St1}.
+
+-spec encode_packet(iodata(), codec()) -> {iodata(), codec()}.
+encode_packet(Msg, S) ->
+    encrypt(Msg, S).
 
 
 %% Helpers
 bin_rev(Bin) ->
+    %% binary:encode_unsigned(binary:decode_unsigned(Bin, little)).
     list_to_binary(lists:reverse(binary_to_list(Bin))).
