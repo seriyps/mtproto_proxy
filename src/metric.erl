@@ -21,5 +21,5 @@ gauge_set(_Name, _Value, _Extra) ->
 histogram_observe(_Name, _Value, _Extra) ->
     noop.
 
-rt(_Name, _Fun) ->
-    noop.
+rt(_Name, Fun) ->
+    Fun().
