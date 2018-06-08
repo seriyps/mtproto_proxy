@@ -19,8 +19,8 @@
         %% {external_ip, "YOUR.SERVER.EXTERNAL.IP"},
         {ports, [#{name => mtp_handler,
                    port => 1443,
-                   secret => <<208,214,225,17,186,218,85,17,252,206,149,132,222,173,190,239>>,
-                   tag => <<220,190,143,20,147,250,76,217,171,48,8,145,192,181,179,38>>}]},
+                   secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
+                   tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}]},
         {num_acceptors, 60},
         {max_connections, 20480}
        ]},

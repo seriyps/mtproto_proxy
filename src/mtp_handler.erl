@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/4]).
--export([hex/1]).
+-export([hex/1, unhex/1]).
 -export([keys_str/0]).
 
 %% Callbacks
@@ -103,8 +103,8 @@ init({_Ref, Socket, Transport, [Secret, Tag]}) ->
             Timer = gen_timeout:new(
                       #{timeout => {env, ?APP, TimeoutKey, TimeoutDefault}}),
             State = #state{up_sock = Socket,
-                           secret = Secret,
-                           proxy_tag = Tag,
+                           secret = unhex(Secret),
+                           proxy_tag = unhex(Tag),
                            up_transport = Transport,
                            started_at = erlang:system_time(second),
                            timer = Timer},
@@ -485,6 +485,13 @@ hex(Bin) ->
                  <<($W + N)>>
          end
      end || <<N:4>> <= Bin>>.
+
+unhex(Chars) ->
+    UnHChar = fun(C) when C < $W -> C - $0;
+                 (C) when C > $W -> C - $W
+              end,
+    << <<(UnHChar(C)):4>> || <<C>> <= Chars>>.
+
 
 track(Direction, Data) ->
     Size = byte_size(Data),

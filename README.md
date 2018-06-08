@@ -3,6 +3,8 @@ Erlang mtproto proxy
 
 This part of code was extracted from [@socksy_bot](https://t.me/socksy_bot).
 
+This implementation supports promoted channels! See `mtproto_proxy_app.src` `tag` option.
+
 How to start
 ------------
 
@@ -48,6 +50,7 @@ Settings
 See `src/mtproto_proxy.app.src`.
 
 Secret key will be printed on start.
+
 
 Helpers
 -------

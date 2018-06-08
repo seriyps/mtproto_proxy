@@ -42,8 +42,8 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag}) ->
            {num_acceptors, NumAcceptors},
            {max_connections, MaxConnections}],
           mtp_handler, [Secret, Tag]),
-    io:format("Proxy started on ~s:~p with key: ~s~n",
-              [inet:ntoa(ListenIp), Port, mtp_handler:hex(Secret)]),
+    io:format("Proxy started on ~s:~p with secret: ~s~n",
+              [inet:ntoa(ListenIp), Port, Secret]),
     Res.
 
 stop_proxy(#{name := Name}) ->
