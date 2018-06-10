@@ -18,7 +18,7 @@
         {client_addr :: binary(),
          proxy_addr :: binary(),
          proxy_tag :: binary(),
-         req_id = 1 :: non_neg_integer()}).
+         conn_id :: binary()}).
 
 -define(APP, mtproto_proxy).
 -define(RPC_PROXY_ANS, 13,218,3,68).
@@ -29,10 +29,12 @@
 new(ClientIp, ClientPort, ProxyIp, ProxyPort, ProxyTag) ->
     #rpc_st{client_addr = iolist_to_binary(encode_ip_port(ClientIp, ClientPort)),
             proxy_addr = iolist_to_binary(encode_ip_port(ProxyIp, ProxyPort)),
-            proxy_tag = ProxyTag}.
+            proxy_tag = ProxyTag,
+            conn_id = <<(erlang:unique_integer()):64/little-signed>>}.
 
 %% It expects that packet segmentation was done on previous layer
-try_decode_packet(<<?RPC_PROXY_ANS, _AnsFlags:4/binary, _ReqId:8/binary, Data/binary>> = _Msg, S) ->
+try_decode_packet(<<?RPC_PROXY_ANS, _AnsFlags:4/binary, _ConnId:8/binary, Data/binary>> = _Msg, S) ->
+    %% TODO: check if we can use downstream multiplexing using ConnId
     {ok, Data, S};
 try_decode_packet(<<?RPC_CLOSE_EXT, _/binary>> = _Msg, _S) ->
     %% Use throw as short-circuit
@@ -42,15 +44,14 @@ try_decode_packet(<<>>, S) ->
 
 
 encode_packet(Msg, #rpc_st{client_addr = ClientAddr, proxy_addr = ProxyAddr,
-                           req_id = ReqId, proxy_tag = ProxyTag} = S) ->
+                           conn_id = ConnId, proxy_tag = ProxyTag} = S) ->
     ((iolist_size(Msg) rem 4) == 0)
         orelse error(not_aligned),
     Req =
         [<<238,241,206,54,                          %RPC_PROXY_REQ
-           8,16,2,64,                               %Flags
-           ReqId:64/little                          %ReqId
+           8,16,2,64                                %Flags
          >>,
-         ClientAddr, ProxyAddr,
+         ConnId, ClientAddr, ProxyAddr,
          <<24:32/little,                            %ExtraSize
            174,38,30,219,                           %ProxyTag
            (byte_size(ProxyTag)),
@@ -59,7 +60,7 @@ encode_packet(Msg, #rpc_st{client_addr = ClientAddr, proxy_addr = ProxyAddr,
          >>
              | Msg
         ],
-    {Req, S#rpc_st{req_id = ReqId + 1}}.
+    {Req, S}.
 
 encode_ip_port(IPv4, Port) when tuple_size(IPv4) == 4 ->
     IpBin = inet_pton(IPv4),
