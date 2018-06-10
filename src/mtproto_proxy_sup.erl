@@ -28,7 +28,8 @@ start_link() ->
 
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 init([]) ->
-    Childs = [
+    Childs = [#{id => mtp_config,
+                start => {mtp_config, start_link, []}}
              ],
     {ok, {#{strategy => rest_for_one,
             intensity => 50,

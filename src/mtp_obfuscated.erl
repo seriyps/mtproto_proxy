@@ -94,7 +94,7 @@ init_up_decrypt(Bin, Secret) ->
     {KeyHash, IV}.
 
 get_dc(<<_:60/binary, DcId:16/signed-little-integer, _/binary>>) ->
-    abs(DcId).
+    DcId.
 
 
 new(EncKey, EncIV, DecKey, DecIV) ->

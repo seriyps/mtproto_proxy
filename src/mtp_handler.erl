@@ -22,25 +22,6 @@
 -define(MAX_SOCK_BUF_SIZE, 1024 * 300).    % Decrease if CPU is cheaper than RAM
 -define(MAX_UP_INIT_BUF_SIZE, 1024 * 1024).     %1mb
 
-%% TODO: download from https://core.telegram.org/getProxyConfig
--define(TG_MIDDLE_PROXIES_V4,
-        {
-          {{149, 154, 175, 50}, 8888},
-          {{149, 154, 162, 38}, 80},
-          {{149, 154, 175, 100}, 8888},
-          {{91, 108, 4, 136}, 8888},
-          {{91, 108, 56, 181}, 8888}
-        }).
-%% TODO: download from https://core.telegram.org/getProxySecret
--define(PROXY_SECRET,
-        <<196,249,250,202,150,120,230,187,72,173,108,126,44,229,192,210,68,48,100,
-          93,85,74,221,235,85,65,158,3,77,166,39,33,208,70,234,171,110,82,171,20,
-          169,90,68,62,207,179,70,62,121,160,90,102,97,42,223,156,174,218,139,233,
-          168,13,166,152,111,176,166,255,56,122,248,77,136,239,58,100,19,113,62,92,
-          51,119,246,225,163,212,125,153,245,224,197,110,236,232,240,92,84,196,144,
-          176,121,227,27,239,130,255,14,232,242,176,163,39,86,210,73,197,242,18,105,
-          129,108,183,6,27,38,93,178,18>>).
-
 -define(APP, mtproto_proxy).
 
 -record(state,
@@ -335,14 +316,7 @@ down_send(Packet, #state{down_sock = Sock,
 
 
 handle_upstream_header(DcId, S) ->
-    {Addr, Port} =
-        try element(DcId, ?TG_MIDDLE_PROXIES_V4)
-        catch error:badarg ->
-                OtherDcId = (DcId rem tuple_size(?TG_MIDDLE_PROXIES_V4)) + 1,
-                lager:warning("Wrong DC id: ~p; will use ~p",
-                              [DcId, OtherDcId]),
-                element(OtherDcId, ?TG_MIDDLE_PROXIES_V4)
-        end,
+    {Addr, Port} = mtp_config:get_downstream_safe(DcId),
 
     case connect(Addr, Port) of
         {ok, Sock} ->
@@ -385,7 +359,7 @@ connect(Host, Port) ->
 
 down_handshake1(S) ->
     RpcNonce = ?RPC_NONCE,
-    <<KeySelector:4/binary, _/binary>> = ?PROXY_SECRET,
+    <<KeySelector:4/binary, _/binary>> = Key = mtp_config:get_secret(),
     CryptoTs = os:system_time(seconds),
     Nonce = crypto:strong_rand_bytes(16),
     Msg = <<RpcNonce/binary,
@@ -396,11 +370,11 @@ down_handshake1(S) ->
     Full = mtp_full:new(-2, -2),
     S1 = S#state{down_codec = mtp_layer:new(mtp_full, Full),
                  stage = down_handshake_1,
-                 stage_state = {KeySelector, Nonce, CryptoTs}},
+                 stage_state = {KeySelector, Nonce, CryptoTs, Key}},
     down_send(Msg, S1).
 
 down_handshake2(<<Type:4/binary, KeySelector:4/binary, Schema:32/little, _CryptoTs:4/binary,
-                  SrvNonce:16/binary>>, #state{stage_state = {MyKeySelector, CliNonce, MyTs},
+                  SrvNonce:16/binary>>, #state{stage_state = {MyKeySelector, CliNonce, MyTs, Key},
                                                down_sock = Sock,
                                                down_codec = DownCodec} = S) ->
     (Type == ?RPC_NONCE) orelse error({wrong_rpc_type, Type}),
@@ -412,7 +386,7 @@ down_handshake2(<<Type:4/binary, KeySelector:4/binary, Schema:32/little, _Crypto
     MyIpBin = mtp_obfuscated:bin_rev(mtp_rpc:inet_pton(MyIp)),
     Args = #{srv_n => SrvNonce, clt_n => CliNonce, clt_ts => MyTs,
              srv_ip => DownIpBin, srv_port => DownPort,
-             clt_ip => MyIpBin, clt_port => MyPort, secret => ?PROXY_SECRET},
+             clt_ip => MyIpBin, clt_port => MyPort, secret => Key},
     {EncKey, EncIv} = get_middle_key(Args#{purpose => <<"CLIENT">>}),
     {DecKey, DecIv} = get_middle_key(Args#{purpose => <<"SERVER">>}),
     CryptoCodec = mtp_layer:new(mtp_aes_cbc, mtp_aes_cbc:new(EncKey, EncIv, DecKey, DecIv, 16)),
@@ -500,6 +474,14 @@ track(Direction, Data) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-define(PROXY_SECRET,
+        <<196,249,250,202,150,120,230,187,72,173,108,126,44,229,192,210,68,48,100,
+          93,85,74,221,235,85,65,158,3,77,166,39,33,208,70,234,171,110,82,171,20,
+          169,90,68,62,207,179,70,62,121,160,90,102,97,42,223,156,174,218,139,233,
+          168,13,166,152,111,176,166,255,56,122,248,77,136,239,58,100,19,113,62,92,
+          51,119,246,225,163,212,125,153,245,224,197,110,236,232,240,92,84,196,144,
+          176,121,227,27,239,130,255,14,232,242,176,163,39,86,210,73,197,242,18,105,
+          129,108,183,6,27,38,93,178,18>>).
 
 middle_key_test() ->
     Args = #{srv_port => 80,
