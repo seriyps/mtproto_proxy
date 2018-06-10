@@ -3,7 +3,15 @@ Erlang mtproto proxy
 
 This part of code was extracted from [@socksy_bot](https://t.me/socksy_bot).
 
-This implementation supports promoted channels! See `mtproto_proxy_app.src` `tag` option.
+Features
+--------
+
+* Promoted channels! See `mtproto_proxy_app.src` `tag` option.
+* Multiple ports with unique secret and promo tag for each port
+* Automatic configuration reload (no need for restarts once per day)
+* Very high performance - can handle tens of thousands connections!
+* Small codebase compared to oficial one
+* A lots of metrics could be exported (optional)
 
 How to start
 ------------
