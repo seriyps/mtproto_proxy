@@ -19,7 +19,6 @@
 -define(MAX_PACKET_SIZE, 1 * 1024 * 1024).      % 1mb
 -define(APP, mtproto_proxy).
 -define(MAX_SIZE, 16#80000000).
--include("dbg.hrl").
 
 -opaque codec() :: #int_st{}.
 
@@ -49,7 +48,6 @@ try_decode_packet(Bin, #int_st{buffer = <<>>} = St) ->
 try_decode_packet_len(Len, Data, St) ->
     case Data of
         <<_:4/binary, Packet:Len/binary, Rest/binary>> ->
-            ?DBG("len=~p ~w -> ~w", [Len, Data, Packet]),
             {ok, Packet, St#int_st{buffer = Rest}};
         _ ->
             {incomplete, St#int_st{buffer = Data}}
@@ -59,5 +57,4 @@ try_decode_packet_len(Len, Data, St) ->
 encode_packet(Data, St) ->
     Size = iolist_size(Data),
     Packet = [<<Size:32/little>> | Data],
-    ?DBG("~w -> ~w", [iolist_to_binary(Data), iolist_to_binary(Packet)]),
     {Packet, St}.
