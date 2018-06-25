@@ -18,11 +18,20 @@
         {client_addr :: binary(),
          proxy_addr :: binary(),
          proxy_tag :: binary(),
-         conn_id :: binary()}).
+         conn_id :: integer()}).
 
 -define(APP, mtproto_proxy).
 -define(RPC_PROXY_ANS, 13,218,3,68).
 -define(RPC_CLOSE_EXT, 162,52,182,94).
+
+-define(FLAG_NOT_ENCRYPTED , 16#2).
+-define(FLAG_HAS_AD_TAG    , 16#8).
+-define(FLAG_MAGIC         , 16#1000).
+-define(FLAG_EXTMODE2      , 16#20000).
+-define(FLAG_INTERMEDIATE  , 16#20000000).
+-define(FLAG_ABRIDGED      , 16#40000000).
+-define(FLAG_QUICKACK      , 16#80000000).
+
 
 -opaque codec() :: #rpc_st{}.
 
@@ -34,7 +43,7 @@ new(ClientIp, ClientPort, ProxyIp, ProxyPort, ProxyTag, ConnId) ->
     #rpc_st{client_addr = iolist_to_binary(encode_ip_port(ClientIp, ClientPort)),
             proxy_addr = iolist_to_binary(encode_ip_port(ProxyIp, ProxyPort)),
             proxy_tag = ProxyTag,
-            conn_id = <<ConnId:64/little-signed>>}.
+            conn_id = ConnId}.
 
 %% It expects that packet segmentation was done on previous layer
 try_decode_packet(<<?RPC_PROXY_ANS, _AnsFlags:4/binary, _ConnId:8/binary, Data/binary>> = _Msg, S) ->
@@ -51,11 +60,22 @@ encode_packet(Msg, #rpc_st{client_addr = ClientAddr, proxy_addr = ProxyAddr,
                            conn_id = ConnId, proxy_tag = ProxyTag} = S) ->
     ((iolist_size(Msg) rem 4) == 0)
         orelse error(not_aligned),
-    Flags = make_flags(Msg),
+    Flags1 = (?FLAG_HAS_AD_TAG
+                  bor ?FLAG_MAGIC
+                  bor ?FLAG_EXTMODE2
+                  bor ?FLAG_ABRIDGED),
+    Flags = case Msg of
+                %% XXX: what if Msg is iolist?
+                <<0, 0, 0, 0, 0, 0, 0, 0, _/binary>> ->
+                    Flags1 bor ?FLAG_NOT_ENCRYPTED;
+                _ ->
+                    Flags1
+             end,
     Req =
-        [<<238,241,206,54>>,                          %RPC_PROXY_REQ
-         Flags,                                %Flags
-         ConnId, ClientAddr, ProxyAddr,
+        [<<238,241,206,54,                          %RPC_PROXY_REQ
+         Flags:32/little,                           %Flags
+         ConnId:64/little-signed>>,
+         ClientAddr, ProxyAddr,
          <<24:32/little,                            %ExtraSize
            174,38,30,219,                           %ProxyTag
            (byte_size(ProxyTag)),
@@ -65,14 +85,6 @@ encode_packet(Msg, #rpc_st{client_addr = ClientAddr, proxy_addr = ProxyAddr,
              | Msg
         ],
     {Req, S}.
-
-make_flags(<<0, 0, 0, 0, 0, 0, 0, 0, _/binary>>) ->
-    <<10, 16, 2, 64>>;
-make_flags(Bin) when is_binary(Bin) ->
-    <<8, 16, 2, 64>>;
-make_flags(Iodata) when is_list(Iodata) ->
-    %% TODO: do iolist_to_binary for 1st 8 bytes somehow
-    make_flags(iolist_to_binary(Iodata)).
 
 encode_ip_port(IPv4, Port) when tuple_size(IPv4) == 4 ->
     IpBin = inet_pton(IPv4),
