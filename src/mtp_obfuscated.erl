@@ -60,7 +60,7 @@ init_down_encrypt(<<_:8/binary, Key:32/binary, IV:16/binary, _/binary>>) ->
 
 
 %% @doc creates new obfuscated stream (MTProto proxy format)
--spec from_header(binary(), binary()) -> {ok, inet:ip4_address(), codec()}.
+-spec from_header(binary(), binary()) -> {ok, integer(), mtp_layer:codec(), codec()}.
 from_header(Header, Secret) when byte_size(Header) == 64  ->
     {EncKey, EncIV} = init_up_encrypt(Header, Secret),
     {DecKey, DecIV} = init_up_decrypt(Header, Secret),
@@ -71,10 +71,10 @@ from_header(Header, Secret) when byte_size(Header) == 64  ->
     case NewHeader of
         <<_:56/binary, 16#ef, 16#ef, 16#ef, 16#ef, _/binary>> ->
             DcId = get_dc(NewHeader),
-            {ok, DcId, St1};
+            {ok, DcId, mtp_abridged, St1};
         <<_:56/binary, 16#ee, 16#ee, 16#ee, 16#ee, _/binary>> ->
-            metric:count_inc([?APP, protocol_error, total], 1, #{labels => [intermediate]}),
-            {error, {protocol_not_supported, intermediate}};
+            DcId = get_dc(NewHeader),
+            {ok, DcId, mtp_intermediate, St1};
         _ ->
             metric:count_inc([?APP, protocol_error, total], 1, #{labels => [unknown]}),
             {error, unknown_protocol}

@@ -214,10 +214,10 @@ state_timeout(stop) ->
 handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, stage_state = <<>>,
                                                                secret = Secret} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
-        {ok, DcId, ObfuscatedCodec} ->
+        {ok, DcId, PacketLayerMod, ObfuscatedCodec} ->
             ObfuscatedLayer = mtp_layer:new(mtp_obfuscated, ObfuscatedCodec),
-            AbridgedLayer = mtp_layer:new(mtp_abridged, mtp_abridged:new()),
-            UpCodec = mtp_layer:new(mtp_wrap, mtp_wrap:new(AbridgedLayer,
+            PacketLayer = mtp_layer:new(PacketLayerMod, PacketLayerMod:new()),
+            UpCodec = mtp_layer:new(mtp_wrap, mtp_wrap:new(PacketLayer,
                                                            ObfuscatedLayer)),
             handle_upstream_header(
               DcId,
