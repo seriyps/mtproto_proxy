@@ -22,6 +22,13 @@ Install deps (ubuntu 18.04)
 sudo apt install erlang-nox erlang-dev build-essential
 ```
 
+Get the code:
+
+```
+git clone https://github.com/seriyps/mtproto_proxy.git
+cd mtproto_proxy/
+```
+
 Compile:
 
 ```
