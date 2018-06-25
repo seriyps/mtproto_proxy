@@ -22,6 +22,10 @@ Install deps (ubuntu 18.04)
 sudo apt install erlang-nox erlang-dev build-essential
 ```
 
+You need Erlang version 20 or higher! If your version is older, please, check
+[Erlang solutions packages](https://www.erlang-solutions.com/resources/download.html)
+or use [kerl](https://github.com/kerl/kerl).
+
 Get the code:
 
 ```

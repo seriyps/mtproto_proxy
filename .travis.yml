@@ -2,8 +2,8 @@ language: erlang
 otp_release:
   - 21.0
   - 20.3
-  - 19.3
-  - 18.3
+  #- 19.3 not supported (string:lexemes/2)
+  #- 18.3 not supported (string:lexemes/2, tricky binary comprehension, map typespec with `:=`, ?assertEqual/3)
 script:
   - ./rebar3 compile
   - ./rebar3 eunit
