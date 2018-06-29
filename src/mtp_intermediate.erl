@@ -33,7 +33,7 @@ new(Opts) ->
 -spec try_decode_packet(binary(), codec()) -> {ok, binary(), codec()}
                                                   | {incomplete, codec()}.
 try_decode_packet(<<Len:32/unsigned-little, _/binary>> = Data,
-                      #int_st{buffer = <<>>} = St) when Len < ?MAX_SIZE ->
+                      #int_st{buffer = <<>>} = St)  ->
     Len1 = case Len < ?MAX_SIZE of
                true -> Len;
                false -> Len - ?MAX_SIZE
