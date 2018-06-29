@@ -20,6 +20,8 @@
                | mtp_abridged
                | mtp_full
                | mtp_obfuscated
+               | mtp_intermediate
+               | mtp_secure
                | mtp_rpc
                | mtp_wrap.
 -type layer() :: {codec(), state()} | ident.

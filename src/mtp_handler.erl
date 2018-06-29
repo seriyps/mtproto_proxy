@@ -215,6 +215,8 @@ handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, sta
                                                                secret = Secret} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, ObfuscatedCodec} ->
+            metric:count_inc([?APP, protocol_ok, total],
+                             1, #{labels => [PacketLayerMod]}),
             ObfuscatedLayer = mtp_layer:new(mtp_obfuscated, ObfuscatedCodec),
             PacketLayer = mtp_layer:new(PacketLayerMod, PacketLayerMod:new()),
             UpCodec = mtp_layer:new(mtp_wrap, mtp_wrap:new(PacketLayer,
@@ -224,7 +226,9 @@ handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, sta
               S#state{up_codec = UpCodec,
                       up_acc = Rest,
                       stage_state = undefined});
-        Err ->
+        {error, unknown_protocol} = Err ->
+            metric:count_inc([?APP, protocol_error, total],
+                             1, #{labels => [unknown]}),
             Err
     end;
 handle_upstream_data(Bin, #state{stage = init, stage_state = <<>>} = S) ->

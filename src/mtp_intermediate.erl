@@ -10,12 +10,14 @@
 -behaviour(mtp_layer).
 
 -export([new/0,
+         new/1,
          try_decode_packet/2,
          encode_packet/2]).
 -export_type([codec/0]).
 
 -record(int_st,
-        {buffer = <<>> :: binary()}).
+        {padding = false :: boolean(),
+         buffer = <<>> :: binary()}).
 -define(MAX_PACKET_SIZE, 1 * 1024 * 1024).      % 1mb
 -define(APP, mtproto_proxy).
 -define(MAX_SIZE, 16#80000000).
@@ -23,7 +25,10 @@
 -opaque codec() :: #int_st{}.
 
 new() ->
-    #int_st{}.
+    new(#{}).
+
+new(Opts) ->
+    #int_st{padding = maps:get(padding, Opts, false)}.
 
 -spec try_decode_packet(binary(), codec()) -> {ok, binary(), codec()}
                                                   | {incomplete, codec()}.
@@ -45,9 +50,14 @@ try_decode_packet(Bin, #int_st{buffer = Buf} = St) when byte_size(Buf) > 0 ->
 try_decode_packet(Bin, #int_st{buffer = <<>>} = St) ->
     {incomplete, St#int_st{buffer = Bin}}.
 
-try_decode_packet_len(Len, Data, St) ->
+try_decode_packet_len(Len, Data, #int_st{padding = Pad} = St) ->
+    Padding = case Pad of
+                  true -> Len rem 4;
+                  false -> 0
+              end,
+    NopadLen = Len - Padding,
     case Data of
-        <<_:4/binary, Packet:Len/binary, Rest/binary>> ->
+        <<_:4/binary, Packet:NopadLen/binary, _Padding:Padding/binary, Rest/binary>> ->
             {ok, Packet, St#int_st{buffer = Rest}};
         _ ->
             {incomplete, St#int_st{buffer = Data}}

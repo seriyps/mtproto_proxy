@@ -75,6 +75,9 @@ from_header(Header, Secret) when byte_size(Header) == 64  ->
         <<_:56/binary, 16#ee, 16#ee, 16#ee, 16#ee, _/binary>> ->
             DcId = get_dc(NewHeader),
             {ok, DcId, mtp_intermediate, St1};
+        <<_:56/binary, 16#dd, 16#dd, 16#dd, 16#dd, _/binary>> ->
+            DcId = get_dc(NewHeader),
+            {ok, DcId, mtp_secure, St1};
         _ ->
             metric:count_inc([?APP, protocol_error, total], 1, #{labels => [unknown]}),
             {error, unknown_protocol}
