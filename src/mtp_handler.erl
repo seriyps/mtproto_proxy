@@ -19,7 +19,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--define(MAX_SOCK_BUF_SIZE, 1024 * 300).    % Decrease if CPU is cheaper than RAM
+-define(MAX_SOCK_BUF_SIZE, 1024 * 50).    % Decrease if CPU is cheaper than RAM
 -define(MAX_UP_INIT_BUF_SIZE, 1024 * 1024).     %1mb
 
 -define(APP, mtproto_proxy).
