@@ -110,7 +110,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 update(#state{tab = Tab}, force) ->
     update_key(Tab),
-    update_config(Tab);
+    update_config(Tab),
+    update_ip();
 update(State, _) ->
     try update(State, force)
     catch Class:Reason ->
@@ -160,6 +161,16 @@ update_downstreams(Downstreams, Tab) ->
 
 update_range(Range, Tab) ->
     true = ets:insert(Tab, {id_range, Range}).
+
+update_ip() ->
+    case application:get_env(?APP, ip_lookup_service) of
+        undefined -> false;
+        {ok, URL} ->
+            {ok, {{_, 200, _}, _, Body}} = httpc:request(URL),
+            IpStr= string:trim(Body),
+            {ok, _} = inet:parse_ipv4strict_address(IpStr), %assert
+            application:set_env(?APP, external_ip, IpStr)
+    end.
 
 
 -ifdef(TEST).

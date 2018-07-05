@@ -13,18 +13,33 @@
     stdlib
    ]},
   {env,[
+        %% Close connection if it failed to perform handshake in this many seconds
         {init_timeout_sec, 60},
         {hibernate_timeout_sec, 60},
+        %% Close connection after this many seconds of inactivity
         {ready_timeout_sec, 1200},
 
-        {ip, {0, 0, 0, 0}},
+        %% Telegram server uses your external IP address as part of encryption
+        %% key, so, you should know it.
+        %% You can configure IP lookup service by `ip_lookup_service' (should
+        %% return my IP address as one line from this URL) or set IP address
+        %% statically by `external_ip' (not both).
+        %% If both are unset, we will try to guess IP address
+        %% from getsockname().
+        {ip_lookup_service, "https://digitalresistance.dog/myIp"},
         %% {external_ip, "YOUR.SERVER.EXTERNAL.IP"},
+
+        %% Interface to listen for incoming connections
+        {ip, {0, 0, 0, 0}},
+        %% You can add as much as you want. Names and ports should be unique
         {ports, [#{name => mtp_handler,
                    port => 1443,
+                   %% secret should be 32 hex chars [0-9a-f]
                    secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
+                   %% tag is what you get from @MTProxybot
                    tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}]},
         {num_acceptors, 60},
-        {max_connections, 20480}
+        {max_connections, 40960}
        ]},
   {modules, []},
 
