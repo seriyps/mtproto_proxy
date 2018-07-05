@@ -7,6 +7,8 @@ Features
 --------
 
 * Promoted channels! See `mtproto_proxy_app.src` `tag` option.
+* "secure" randomized-packet-size protocol (34-symbol secrets starting with 'dd')
+  to prevent detection by DPI
 * Multiple ports with unique secret and promo tag for each port
 * Automatic configuration reload (no need for restarts once per day)
 * Very high performance - can handle tens of thousands connections!
@@ -23,7 +25,7 @@ sudo apt install erlang-nox erlang-dev build-essential
 ```
 
 You need Erlang version 20 or higher! If your version is older, please, check
-[Erlang solutions packages](https://www.erlang-solutions.com/resources/download.html)
+[Erlang solutions esl-erlang package](https://www.erlang-solutions.com/resources/download.html)
 or use [kerl](https://github.com/kerl/kerl).
 
 Get the code:
@@ -33,25 +35,31 @@ git clone https://github.com/seriyps/mtproto_proxy.git
 cd mtproto_proxy/
 ```
 
+Update settings (see [Settings](#settings)).
+
 Compile:
 
 ```
 ./rebar3 release
 ```
 
-Start with interactive console:
+Make sure your limit of open files is high enough! Check `ulimit -n`.
+You may need to tweak your `/etc/security/limits.conf` or systemd `LimitNOFILE`
+to be able to handle more than ~500 clients.
+
+Start with interactive console (recommended for testing)
 
 ```
 ./_build/default/rel/mtp_proxy/bin/mtp_proxy console
 ```
 
-Start in foreground
+Or start in foreground (recommended for systemd service)
 
 ```
 ./_build/default/rel/mtp_proxy/bin/mtp_proxy foreground
 ```
 
-Start in background
+Or start in background (to run as a service without supervision)
 
 ```
 ./_build/default/rel/mtp_proxy/bin/mtp_proxy start
@@ -61,6 +69,12 @@ Stop proxy started in background
 
 ```
 ./_build/default/rel/mtp_proxy/bin/mtp_proxy stop
+```
+
+Logs can be found at
+
+```
+./_build/default/rel/mtp_proxy/log/
 ```
 
 Settings
