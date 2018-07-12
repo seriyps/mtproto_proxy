@@ -28,6 +28,7 @@
 -define(FLAG_HAS_AD_TAG    , 16#8).
 -define(FLAG_MAGIC         , 16#1000).
 -define(FLAG_EXTMODE2      , 16#20000).
+-define(FLAG_PAD           , 16#8000000).       %TODO: use it
 -define(FLAG_INTERMEDIATE  , 16#20000000).
 -define(FLAG_ABRIDGED      , 16#40000000).
 -define(FLAG_QUICKACK      , 16#80000000).

@@ -64,7 +64,13 @@ try_decode_packet_len(Len, Data, #int_st{padding = Pad} = St) ->
     end.
 
 -spec encode_packet(iodata(), codec()) -> iodata().
-encode_packet(Data, St) ->
+encode_packet(Data, #int_st{padding = Pad} = St) ->
     Size = iolist_size(Data),
-    Packet = [<<Size:32/little>> | Data],
+    Packet = case Pad of
+                 false -> [<<Size:32/little>> | Data];
+                 true ->
+                     PadSize = rand:uniform(4) - 1,
+                     Padding = crypto:strong_rand_bytes(PadSize), % 0 is ok
+                     [<<(Size + PadSize):32/little>>, Data | Padding]
+             end,
     {Packet, St}.
