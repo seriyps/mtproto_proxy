@@ -8,7 +8,7 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, stop/1]).
+-export([start/2, stop/1, start_proxy/1]).
 -define(APP, mtproto_proxy).
 
 %%====================================================================
@@ -30,8 +30,10 @@ stop(_State) ->
 %%====================================================================
 %% Internal functions
 %%====================================================================
-start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag}) ->
-    ListenIp = application:get_env(?APP, ip, {0, 0, 0, 0}),
+start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
+    ListenIp = maps:get(
+                 listen_ip, P,
+                 application:get_env(?APP, listen_ip, {0, 0, 0, 0})),
     NumAcceptors = application:get_env(?APP, num_acceptors, 60),
     MaxConnections = application:get_env(?APP, max_connections, 10240),
     Res =
