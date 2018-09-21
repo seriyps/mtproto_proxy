@@ -1,5 +1,4 @@
-INSTALL_BASE:=/opt
-INSTALL_TO:=$(INSTALL_BASE)
+DESTDIR:=/opt
 REBAR3:=./rebar3
 SERVICE:=/etc/systemd/system/mtproto-proxy.service
 LOGDIR:=/var/log/mtproto-proxy
@@ -23,14 +22,14 @@ $(LOGDIR):
 
 install: $(LOGDIR)
 	sudo useradd -r $(USER) || true
-	cp -n -r _build/prod/rel/mtp_proxy $(INSTALL_BASE)
-	mkdir -p $(INSTALL_BASE)/mtp_proxy/log
-	chmod 777 $(INSTALL_BASE)/mtp_proxy/log
+	cp -n -r _build/prod/rel/mtp_proxy $(DESTDIR)
+	mkdir -p $(DESTDIR)/mtp_proxy/log
+	chmod 777 $(DESTDIR)/mtp_proxy/log
 	cp -n config/mtproto-proxy.service $(SERVICE)
 	systemctl daemon-reload
 
 uninstall:
 # TODO: ensure service is stopped
 	rm $(SERVICE)
-	rm -r $(INSTALL_BASE)/mtp_proxy
+	rm -r $(DESTDIR)/mtp_proxy
 	systemctl daemon-reload
