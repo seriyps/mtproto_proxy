@@ -1,0 +1,6 @@
+-sname mtproto_proxy
+
+-setcookie mtproto-proxy-cookie
+
+## this one is essential for >500 connections
++K true

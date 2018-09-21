@@ -31,9 +31,10 @@ stop(_State) ->
 %% Internal functions
 %%====================================================================
 start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
-    ListenIp = maps:get(
-                 listen_ip, P,
-                 application:get_env(?APP, listen_ip, {0, 0, 0, 0})),
+    ListenIpStr = maps:get(
+                    listen_ip, P,
+                    application:get_env(?APP, listen_ip, "0.0.0.0")),
+    {ok, ListenIp} = inet:parse_ipv4_address(ListenIpStr),
     NumAcceptors = application:get_env(?APP, num_acceptors, 60),
     MaxConnections = application:get_env(?APP, max_connections, 10240),
     Res =
@@ -44,8 +45,12 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
            {num_acceptors, NumAcceptors},
            {max_connections, MaxConnections}],
           mtp_handler, [Secret, Tag]),
-    io:format("Proxy started on ~s:~p with secret: ~s~n",
-              [inet:ntoa(ListenIp), Port, Secret]),
+    Url = io_lib:format(
+            "https://t.me/proxy?server=~s&port=~w&secret=~s",
+            [application:get_env(?APP, external_ip, ListenIpStr),
+             Port, Secret]),
+    io:format("Proxy started on ~s:~p with secret: ~s, tag: ~s~nUrl: ~s~n",
+              [ListenIpStr, Port, Secret, Tag, Url]),
     Res.
 
 stop_proxy(#{name := Name}) ->

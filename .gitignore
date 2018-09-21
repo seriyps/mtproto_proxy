@@ -18,5 +18,3 @@ _build
 rebar3.crashdump
 *~
 config/prod*
-config/proxy*
-deploy/*.retry
