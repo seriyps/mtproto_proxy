@@ -9,9 +9,11 @@ Features
 * Promoted channels! See `mtproto_proxy_app.src` `tag` option.
 * "secure" randomized-packet-size protocol (34-symbol secrets starting with 'dd')
   to prevent detection by DPI
+* Secure-only mode (only allow connections with 'dd'-secrets). See `allowed_protocols` option.
 * Multiple ports with unique secret and promo tag for each port
 * Automatic configuration reload (no need for restarts once per day)
-* Very high performance - can handle tens of thousands connections!
+* Most of the configuration options might be updated without service restart
+* Very high performance - can handle tens of thousands connections! Scales to all CPU cores.
 * Small codebase compared to oficial one
 * A lots of metrics could be exported (optional)
 
@@ -118,10 +120,13 @@ and then re-install proxy by
 ```
 sudo make uninstall && make && sudo make install
 ```
+There are other ways as well. It's even possible to update configuration options
+without service restart / without downtime, but it's a bit trickier.
 
 ### Change default port / secret / ad tag
 
-To change default settings, change `mtproto_proxy` section as:
+To change default settings, change `mtproto_proxy` section of `prod-sys.config` as:
+
 ```
  {mtproto_proxy,
   %% see src/mtproto_proxy.app.src for examples.
@@ -170,6 +175,21 @@ To do so, just add more configs to `ports` section, separated by comma, eg:
 ```
 
 Each section should have unique `name`!
+
+### Only allow connections with 'dd'-secrets
+
+It might be useful in Iran, where proxies are detected by DPI.
+You should disable all protocols other than `mtp_secure` by providing `allowed_protocols` option:
+
+```
+  {mtproto_proxy,
+   [
+    {allowed_protocols, [mtp_secure]},
+    {ports,
+     [#{name => mtp_handler_1,
+      <..>
+```
+
 
 Helpers
 -------

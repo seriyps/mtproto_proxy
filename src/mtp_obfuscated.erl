@@ -60,25 +60,25 @@ init_down_encrypt(<<_:8/binary, Key:32/binary, IV:16/binary, _/binary>>) ->
 
 
 %% @doc creates new obfuscated stream (MTProto proxy format)
--spec from_header(binary(), binary()) -> {ok, integer(), mtp_layer:codec(), codec()}.
+-spec from_header(binary(), binary()) -> {ok, integer(), mtp_layer:codec(), codec()}
+                                             | {error, unknown_protocol | disabled_protocol}.
 from_header(Header, Secret) when byte_size(Header) == 64  ->
     {EncKey, EncIV} = init_up_encrypt(Header, Secret),
     {DecKey, DecIV} = init_up_decrypt(Header, Secret),
     St = new(EncKey, EncIV, DecKey, DecIV),
     {<<_:56/binary, Bin1:8/binary, _/binary>>, St1} = decrypt(Header, St),
-    case Bin1 of
-        <<16#ef, 16#ef, 16#ef, 16#ef, _/binary>> ->
-            DcId = get_dc(Bin1),
-            {ok, DcId, mtp_abridged, St1};
-        <<16#ee, 16#ee, 16#ee, 16#ee, _/binary>> ->
-            DcId = get_dc(Bin1),
-            {ok, DcId, mtp_intermediate, St1};
-        <<16#dd, 16#dd, 16#dd, 16#dd, _/binary>> ->
-            DcId = get_dc(Bin1),
-            {ok, DcId, mtp_secure, St1};
-        _ ->
-            metric:count_inc([?APP, protocol_error, total], 1, #{labels => [unknown]}),
-            {error, unknown_protocol}
+    case get_protocol(Bin1) of
+        {error, unknown_protocol} = Err ->
+            Err;
+        Protocol ->
+            {ok, AllowedProtocols} = application:get_env(?APP, allowed_protocols),
+            case lists:member(Protocol, AllowedProtocols) of
+                true ->
+                    DcId = get_dc(Bin1),
+                    {ok, DcId, Protocol, St1};
+                false ->
+                    {error, disabled_protocol}
+            end
     end.
 
 init_up_encrypt(Bin, Secret) ->
@@ -93,6 +93,15 @@ init_up_decrypt(Bin, Secret) ->
     <<_:8/binary, Key:32/binary, IV:16/binary, _/binary>> = Bin,
     KeyHash = crypto:hash('sha256', <<Key/binary, Secret/binary>>),
     {KeyHash, IV}.
+
+get_protocol(<<16#ef, 16#ef, 16#ef, 16#ef, _/binary>>) ->
+    mtp_abridged;
+get_protocol(<<16#ee, 16#ee, 16#ee, 16#ee, _/binary>>) ->
+    mtp_intermediate;
+get_protocol(<<16#dd, 16#dd, 16#dd, 16#dd, _/binary>>) ->
+    mtp_secure;
+get_protocol(_) ->
+    {error, unknown_protocol}.
 
 get_dc(<<_:4/binary, DcId:16/signed-little-integer, _/binary>>) ->
     DcId.

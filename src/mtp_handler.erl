@@ -226,9 +226,9 @@ handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, sta
               S#state{up_codec = UpCodec,
                       up_acc = Rest,
                       stage_state = undefined});
-        {error, unknown_protocol} = Err ->
+        {error, Reason} = Err ->
             metric:count_inc([?APP, protocol_error, total],
-                             1, #{labels => [unknown]}),
+                             1, #{labels => [Reason]}),
             Err
     end;
 handle_upstream_data(Bin, #state{stage = init, stage_state = <<>>} = S) ->

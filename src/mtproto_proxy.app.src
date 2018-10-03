@@ -44,7 +44,13 @@
                    %% tag is what you get from @MTProxybot
                    tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}]},
         {num_acceptors, 60},
-        {max_connections, 40960}
+        {max_connections, 40960},
+        %% It's possible to forbid connection from telegram client to proxy
+        %% with some of the protocols. Might be useful to set this to
+        %% only `{allowed_protocols, [mtp_secure]}` if you want to only allow
+        %% connections to this proxy with "dd"-secrets. Connections by other
+        %% protocols will be immediately closed.
+        {allowed_protocols, [mtp_abridged, mtp_intermediate, mtp_secure]}
        ]},
   {modules, []},
 
