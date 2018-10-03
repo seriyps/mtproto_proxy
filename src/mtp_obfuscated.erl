@@ -66,17 +66,15 @@ from_header(Header, Secret) when byte_size(Header) == 64  ->
     {DecKey, DecIV} = init_up_decrypt(Header, Secret),
     St = new(EncKey, EncIV, DecKey, DecIV),
     {<<_:56/binary, Bin1:8/binary, _/binary>>, St1} = decrypt(Header, St),
-    <<HeaderPart:56/binary, _/binary>> = Header,
-    NewHeader = <<HeaderPart/binary, Bin1/binary>>,
-    case NewHeader of
-        <<_:56/binary, 16#ef, 16#ef, 16#ef, 16#ef, _/binary>> ->
-            DcId = get_dc(NewHeader),
+    case Bin1 of
+        <<16#ef, 16#ef, 16#ef, 16#ef, _/binary>> ->
+            DcId = get_dc(Bin1),
             {ok, DcId, mtp_abridged, St1};
-        <<_:56/binary, 16#ee, 16#ee, 16#ee, 16#ee, _/binary>> ->
-            DcId = get_dc(NewHeader),
+        <<16#ee, 16#ee, 16#ee, 16#ee, _/binary>> ->
+            DcId = get_dc(Bin1),
             {ok, DcId, mtp_intermediate, St1};
-        <<_:56/binary, 16#dd, 16#dd, 16#dd, 16#dd, _/binary>> ->
-            DcId = get_dc(NewHeader),
+        <<16#dd, 16#dd, 16#dd, 16#dd, _/binary>> ->
+            DcId = get_dc(Bin1),
             {ok, DcId, mtp_secure, St1};
         _ ->
             metric:count_inc([?APP, protocol_error, total], 1, #{labels => [unknown]}),
@@ -96,7 +94,7 @@ init_up_decrypt(Bin, Secret) ->
     KeyHash = crypto:hash('sha256', <<Key/binary, Secret/binary>>),
     {KeyHash, IV}.
 
-get_dc(<<_:60/binary, DcId:16/signed-little-integer, _/binary>>) ->
+get_dc(<<_:4/binary, DcId:16/signed-little-integer, _/binary>>) ->
     DcId.
 
 
