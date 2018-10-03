@@ -1,6 +1,6 @@
 {application, mtproto_proxy,
  [{description, "An OTP application"},
-  {vsn, "0.1.0"},
+  {vsn, "0.2.0"},
   {registered, []},
   {mod, { mtproto_proxy_app, []}},
   {applications,
@@ -21,12 +21,17 @@
 
         %% Telegram server uses your external IP address as part of encryption
         %% key, so, you should know it.
-        %% You can configure IP lookup service by `ip_lookup_service' (should
+        %% You can configure IP lookup services by `ip_lookup_services' (should
         %% return my IP address as one line from this URL) or set IP address
         %% statically by `external_ip' (not both).
-        %% If both are unset, we will try to guess IP address
+        %% If both are unset, proxy will try to guess IP address
         %% from getsockname().
-        {ip_lookup_service, "https://digitalresistance.dog/myIp"},
+        %% `ip_lookup_services' will be tried one-by-one: if 1st is not responding,
+        %% 2nd one will be tried and so on
+        {ip_lookup_services,
+         ["http://ip.seriyps.ru/",
+          "https://digitalresistance.dog/myIp",
+          "http://ipv4.myexternalip.com/raw"]},
         %% {external_ip, "YOUR.SERVER.EXTERNAL.IP"},
 
         %% Interface to listen for incoming connections

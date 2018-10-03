@@ -163,14 +163,25 @@ update_range(Range, Tab) ->
     true = ets:insert(Tab, {id_range, Range}).
 
 update_ip() ->
-    case application:get_env(?APP, ip_lookup_service) of
+    case application:get_env(?APP, ip_lookup_services) of
         undefined -> false;
-        {ok, URL} ->
-            {ok, {{_, 200, _}, _, Body}} = httpc:request(URL),
-            IpStr= string:trim(Body),
-            {ok, _} = inet:parse_ipv4strict_address(IpStr), %assert
-            application:set_env(?APP, external_ip, IpStr)
+        {ok, URLs} ->
+            update_ip(URLs)
     end.
+
+update_ip([Url | Fallbacks]) ->
+    try
+        {ok, {{_, 200, _}, _, Body}} = httpc:request(Url),
+        IpStr= string:trim(Body),
+        {ok, _} = inet:parse_ipv4strict_address(IpStr), %assert
+        application:set_env(?APP, external_ip, IpStr)
+    catch Class:Reason ->
+            lager:error("Failed to update IP with ~s service: ~s",
+                        [Url, lager:pr_stacktrace(erlang:get_stacktrace(), {Class, Reason})]),
+            update_ip(Fallbacks)
+    end;
+update_ip([]) ->
+    error(ip_lookup_failed).
 
 
 -ifdef(TEST).
