@@ -78,8 +78,11 @@ init([]) ->
                          protected,
                          named_table,
                          {read_concurrency, true}]),
-    {ok, update(#state{tab = Tab,
-                       timer = Timer}, force)}.
+    State = #state{tab = Tab,
+                   timer = Timer},
+    update(State, force),
+    {ok, State}.
+
 %%--------------------------------------------------------------------
 handle_call(_Request, _From, State) ->
     Reply = ok,
