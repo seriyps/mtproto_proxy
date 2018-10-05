@@ -41,7 +41,7 @@ try_decode_packet(<<Len:32/unsigned-little, _/binary>> = Data,
     (Len1 < ?MAX_PACKET_SIZE)
         orelse
         begin
-            metric:count_inc([?APP, protocol_error, total], 1, #{labels => [intermediate_max_size]}),
+            mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [intermediate_max_size]}),
             error({packet_too_large, Len1})
         end,
     try_decode_packet_len(Len1, Data, St);

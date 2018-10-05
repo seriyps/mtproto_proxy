@@ -44,7 +44,7 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
            {port, Port},
            {num_acceptors, NumAcceptors},
            {max_connections, MaxConnections}],
-          mtp_handler, [Secret, Tag]),
+          mtp_handler, [Name, Secret, Tag]),
     Url = io_lib:format(
             "https://t.me/proxy?server=~s&port=~w&secret=~s",
             [application:get_env(?APP, external_ip, ListenIpStr),

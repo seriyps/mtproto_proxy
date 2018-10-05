@@ -50,7 +50,6 @@
 %% APIs
 
 start_link(Ref, Socket, Transport, Opts) ->
-    metric:count_inc([?APP, in_connection, total], 1, #{}),
     {ok, proc_lib:spawn_link(?MODULE, ranch_init, [{Ref, Socket, Transport, Opts}])}.
 
 keys_str() ->
@@ -72,14 +71,16 @@ ranch_init({Ref, Socket, Transport, _} = Opts) ->
                                    ]),
             gen_server:enter_loop(?MODULE, [], State);
         error ->
-            metric:count_inc([?APP, in_connection_closed, total], 1, #{}),
+            mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{}),
             exit(normal)
     end.
 
-init({_Ref, Socket, Transport, [Secret, Tag]}) ->
+init({_Ref, Socket, Transport, [Name, Secret, Tag]}) ->
+    mtp_metric:set_context_labels([Name]),
+    mtp_metric:count_inc([?APP, in_connection, total], 1, #{}),
     case Transport:peername(Socket) of
         {ok, {Ip, Port}} ->
-            lager:info("New connection ~s:~p", [inet:ntoa(Ip), Port]),
+            lager:info("~s: new connection ~s:~p", [Name, inet:ntoa(Ip), Port]),
             {TimeoutKey, TimeoutDefault} = state_timeout(init),
             Timer = gen_timeout:new(
                       #{timeout => {env, ?APP, TimeoutKey, TimeoutDefault}}),
@@ -153,11 +154,11 @@ handle_info(timeout, #state{timer = Timer, timer_state = TState} = S) ->
     case gen_timeout:is_expired(Timer) of
         true when TState == stop;
                   TState == init ->
-            metric:count_inc([?APP, inactive_timeout, total], 1, #{}),
+            mtp_metric:count_inc([?APP, inactive_timeout, total], 1, #{}),
             lager:info("inactive timeout in state ~p", [TState]),
             {stop, normal, S};
         true when TState == hibernate ->
-            metric:count_inc([?APP, inactive_hibernate, total], 1, #{}),
+            mtp_metric:count_inc([?APP, inactive_hibernate, total], 1, #{}),
             {noreply, switch_timer(S, stop), hibernate};
         false ->
             Timer1 = gen_timeout:reset(Timer),
@@ -168,7 +169,7 @@ handle_info(Other, S) ->
     {noreply, S}.
 
 terminate(_Reason, #state{}) ->
-    metric:count_inc([?APP, in_connection_closed, total], 1, #{}),
+    mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{}),
     lager:debug("terminate ~p", [_Reason]),
     ok.
 
@@ -192,7 +193,7 @@ bump_timer(#state{timer = Timer, timer_state = TState} = S) ->
 switch_timer(#state{timer_state = TState} = S, TState) ->
     S;
 switch_timer(#state{timer_state = FromState, timer = Timer} = S, ToState) ->
-    metric:count_inc([?APP, timer_switch, total], 1,
+    mtp_metric:count_inc([?APP, timer_switch, total], 1,
                      #{labels => [FromState, ToState]}),
     {NewTimeKey, NewTimeDefault} = state_timeout(ToState),
     Timer1 = gen_timeout:set_timeout(
@@ -215,7 +216,7 @@ handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, sta
                                                                secret = Secret} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, ObfuscatedCodec} ->
-            metric:count_inc([?APP, protocol_ok, total],
+            mtp_metric:count_inc([?APP, protocol_ok, total],
                              1, #{labels => [PacketLayerMod]}),
             ObfuscatedLayer = mtp_layer:new(mtp_obfuscated, ObfuscatedCodec),
             PacketLayer = mtp_layer:new(PacketLayerMod, PacketLayerMod:new()),
@@ -227,7 +228,7 @@ handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, sta
                       up_acc = Rest,
                       stage_state = undefined});
         {error, Reason} = Err ->
-            metric:count_inc([?APP, protocol_error, total],
+            mtp_metric:count_inc([?APP, protocol_error, total],
                              1, #{labels => [Reason]}),
             Err
     end;
@@ -240,7 +241,7 @@ handle_upstream_data(Bin, #state{stage = tunnel,
     {ok, S3, UpCodec1} =
         mtp_layer:fold_packets(
           fun(Decoded, S1) ->
-                  metric:histogram_observe(
+                  mtp_metric:histogram_observe(
                     [?APP, tg_packet_size, bytes],
                     byte_size(Decoded),
                     #{labels => [upstream_to_downstream]}),
@@ -285,7 +286,7 @@ handle_downstream_data(Bin, #state{stage = tunnel,
     {ok, S3, DownCodec1} =
         mtp_layer:fold_packets(
           fun(Decoded, S1) ->
-                  metric:histogram_observe(
+                  mtp_metric:histogram_observe(
                     [?APP, tg_packet_size, bytes],
                     byte_size(Decoded),
                     #{labels => [downstream_to_upstream]}),
@@ -300,7 +301,7 @@ up_send(Packet, #state{stage = tunnel,
                        up_sock = Sock,
                        up_transport = Transport} = S) ->
     {Encoded, UpCodec1} = mtp_layer:encode_packet(Packet, UpCodec),
-    metric:rt([?APP, upstream_send_duration, seconds],
+    mtp_metric:rt([?APP, upstream_send_duration, seconds],
               fun() ->
                       ok = Transport:send(Sock, Encoded)
               end),
@@ -309,7 +310,7 @@ up_send(Packet, #state{stage = tunnel,
 down_send(Packet, #state{down_sock = Sock,
                          down_codec = DownCodec} = S) ->
     {Encoded, DownCodec1} = mtp_layer:encode_packet(Packet, DownCodec),
-    metric:rt([?APP, downstream_send_duration, seconds],
+    mtp_metric:rt([?APP, downstream_send_duration, seconds],
               fun() ->
                       ok = gen_tcp:send(Sock, Encoded)
               end),
@@ -325,12 +326,12 @@ handle_upstream_header(DcId, S) ->
     case connect(Addr, Port) of
         {ok, Sock} ->
             AddrStr = inet:ntoa(Addr),
-            metric:count_inc([?APP, out_connect_ok, total], 1,
+            mtp_metric:count_inc([?APP, out_connect_ok, total], 1,
                              #{labels => [AddrStr]}),
             lager:info("Connected to ~s:~p", [AddrStr, Port]),
             down_handshake1(S#state{down_sock = Sock});
         {error, Reason} = Err ->
-            metric:count_inc([?APP, out_connect_error, total], 1, #{labels => [Reason]}),
+            mtp_metric:count_inc([?APP, out_connect_error, total], 1, #{labels => [Reason]}),
             Err
     end.
 
@@ -344,7 +345,7 @@ connect(Host, Port) ->
                 {send_timeout, ?SEND_TIMEOUT},
                 %% {nodelay, true},
                 {keepalive, true}],
-    case metric:rt([?APP, downstream_connect_duration, seconds],
+    case mtp_metric:rt([?APP, downstream_connect_duration, seconds],
                    fun() ->
                            gen_tcp:connect(Host, Port, SockOpts, ?CONN_TIMEOUT)
                    end) of
@@ -473,8 +474,8 @@ unhex(Chars) ->
 
 track(Direction, Data) ->
     Size = byte_size(Data),
-    metric:count_inc([?APP, tracker, bytes], Size, #{labels => [Direction]}),
-    metric:histogram_observe([?APP, tracker_packet_size, bytes], Size, #{labels => [Direction]}).
+    mtp_metric:count_inc([?APP, tracker, bytes], Size, #{labels => [Direction]}),
+    mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], Size, #{labels => [Direction]}).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
