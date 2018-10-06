@@ -88,7 +88,7 @@ init({_Ref, Socket, Transport, [Name, Secret, Tag]}) ->
                            secret = unhex(Secret),
                            proxy_tag = unhex(Tag),
                            up_transport = Transport,
-                           started_at = erlang:system_time(second),
+                           started_at = erlang:system_time(millisecond),
                            timer = Timer},
             {ok, State};
         {error, Reason} ->
