@@ -66,12 +66,11 @@ notify(Type, Name, Value, Extra) ->
       Labels :: #{atom() => binary() | atom()},
       Value :: integer() | float().
 passive_metrics() ->
-    AppListeners = [Name || #{name := Name} <- application:get_env(?APP, ports, [])],
     [{gauge, [?APP, connections, count],
       "Count of ranch connections",
       [{#{listener => H}, proplists:get_value(all_connections, P)}
        || {H, P} <- ranch:info(),
-          lists:member(H, AppListeners)]}].
+          proplists:get_value(protocol, P) == mtp_handler]}].
 
 -spec active_metrics() -> [{metric_type(), metric_name(), metric_doc(), Opts}]
                               when
