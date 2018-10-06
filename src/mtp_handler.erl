@@ -171,7 +171,7 @@ handle_info(Other, S) ->
 terminate(_Reason, #state{started_at = Started}) ->
     mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{}),
     Lifetime = erlang:system_time(millisecond) - Started,
-    metric:histogram_observe(
+    mtp_metric:histogram_observe(
       [?APP, session_lifetime, seconds],
       erlang:convert_time_unit(Lifetime, millisecond, native), #{}),
     lager:debug("terminate ~p", [_Reason]),
