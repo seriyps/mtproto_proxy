@@ -331,7 +331,7 @@ handle_upstream_header(DcId, S) ->
         {ok, Sock} ->
             AddrStr = inet:ntoa(Addr),
             mtp_metric:count_inc([?APP, out_connect_ok, total], 1,
-                             #{labels => [AddrStr]}),
+                             #{labels => [DcId, AddrStr]}),
             lager:info("Connected to ~s:~p", [AddrStr, Port]),
             down_handshake1(S#state{down_sock = Sock});
         {error, Reason} = Err ->
