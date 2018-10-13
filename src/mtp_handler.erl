@@ -216,6 +216,19 @@ state_timeout(stop) ->
 %% Stream handlers
 
 %% Handle telegram client -> proxy stream
+handle_upstream_data(Bin, #state{stage = tunnel,
+                                 up_codec = UpCodec} = S) ->
+    {ok, S3, UpCodec1} =
+        mtp_layer:fold_packets(
+          fun(Decoded, S1) ->
+                  mtp_metric:histogram_observe(
+                    [?APP, tg_packet_size, bytes],
+                    byte_size(Decoded),
+                    #{labels => [upstream_to_downstream]}),
+                  {ok, S2} = down_send(Decoded, S1),
+                  S2
+          end, S, Bin, UpCodec),
+    {ok, S3#state{up_codec = UpCodec1}};
 handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, stage_state = <<>>,
                                                                secret = Secret} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
@@ -240,19 +253,6 @@ handle_upstream_data(Bin, #state{stage = init, stage_state = <<>>} = S) ->
     {ok, S#state{stage_state = Bin}};
 handle_upstream_data(Bin, #state{stage = init, stage_state = Buf} = S) ->
     handle_upstream_data(<<Buf/binary, Bin/binary>> , S#state{stage_state = <<>>});
-handle_upstream_data(Bin, #state{stage = tunnel,
-                                 up_codec = UpCodec} = S) ->
-    {ok, S3, UpCodec1} =
-        mtp_layer:fold_packets(
-          fun(Decoded, S1) ->
-                  mtp_metric:histogram_observe(
-                    [?APP, tg_packet_size, bytes],
-                    byte_size(Decoded),
-                    #{labels => [upstream_to_downstream]}),
-                  {ok, S2} = down_send(Decoded, S1),
-                  S2
-          end, S, Bin, UpCodec),
-    {ok, S3#state{up_codec = UpCodec1}};
 handle_upstream_data(Bin, #state{stage = Stage, up_acc = Acc} = S) when Stage =/= init,
                                                                         Stage =/= tunnel ->
     %% We are in downstream handshake; it would be better to leave socked in passive mode,
@@ -263,6 +263,19 @@ handle_upstream_data(Bin, #state{stage = Stage, up_acc = Acc} = S) when Stage =/
 
 
 %% Handle telegram server -> proxy stream
+handle_downstream_data(Bin, #state{stage = tunnel,
+                                   down_codec = DownCodec} = S) ->
+    {ok, S3, DownCodec1} =
+        mtp_layer:fold_packets(
+          fun(Decoded, S1) ->
+                  mtp_metric:histogram_observe(
+                    [?APP, tg_packet_size, bytes],
+                    byte_size(Decoded),
+                    #{labels => [downstream_to_upstream]}),
+                  {ok, S2} = up_send(Decoded, S1),
+                  S2
+          end, S, Bin, DownCodec),
+    {ok, S3#state{down_codec = DownCodec1}};
 handle_downstream_data(Bin, #state{stage = down_handshake_1,
                                    down_codec = DownCodec} = S) ->
     case mtp_layer:try_decode_packet(Bin, DownCodec) of
@@ -284,20 +297,7 @@ handle_downstream_data(Bin, #state{stage = down_handshake_2,
             handle_upstream_data(UpAcc, S2#state{up_acc = []});
         {incomplete, DownCodec1} ->
             {ok, S#state{down_codec = DownCodec1}}
-    end;
-handle_downstream_data(Bin, #state{stage = tunnel,
-                                   down_codec = DownCodec} = S) ->
-    {ok, S3, DownCodec1} =
-        mtp_layer:fold_packets(
-          fun(Decoded, S1) ->
-                  mtp_metric:histogram_observe(
-                    [?APP, tg_packet_size, bytes],
-                    byte_size(Decoded),
-                    #{labels => [downstream_to_upstream]}),
-                  {ok, S2} = up_send(Decoded, S1),
-                  S2
-          end, S, Bin, DownCodec),
-    {ok, S3#state{down_codec = DownCodec1}}.
+    end.
 
 
 up_send(Packet, #state{stage = tunnel,
