@@ -6,6 +6,7 @@
   {applications,
    [lager,
     ranch,
+    psq,
     crypto,
     ssl,
     inets,
@@ -55,9 +56,12 @@
         %% only `{allowed_protocols, [mtp_secure]}` if you want to only allow
         %% connections to this proxy with "dd"-secrets. Connections by other
         %% protocols will be immediately closed.
-        {allowed_protocols, [mtp_abridged, mtp_intermediate, mtp_secure]}
+        {allowed_protocols, [mtp_abridged, mtp_intermediate, mtp_secure]},
 
-        %% module with function `notify/4' exported.
+        {init_dc_connections, 2},
+        {clients_per_dc_connection, 300}
+
+        %% Should be module with function `notify/4' exported.
         %% See mtp_metric:notify/4 for details
         %% {metric_backend, my_metric_backend}
 

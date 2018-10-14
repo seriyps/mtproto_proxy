@@ -1,6 +1,21 @@
 %%%-------------------------------------------------------------------
 %% @doc mtproto_proxy top level supervisor.
 %% @end
+%% <pre>
+%% dc_pool_sup (simple_one_for_one)
+%%   dc_pool_1 [conn1, conn3, conn4, ..]
+%%   dc_pool_-1 [conn2, ..]
+%%   dc_pool_2 [conn5, conn7, ..]
+%%   dc_pool_-2 [conn6, conn8, ..]
+%%   ...
+%% down_conn_sup (simple_one_for_one)
+%%   conn1
+%%   conn2
+%%   conn3
+%%   conn4
+%%   ...
+%%   connN
+%% </pre>
 %%%-------------------------------------------------------------------
 
 -module(mtproto_proxy_sup).
@@ -26,16 +41,17 @@ start_link() ->
 %% Supervisor callbacks
 %%====================================================================
 
-%% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 init([]) ->
-    Childs = [#{id => mtp_config,
+    SupFlags = #{strategy => one_for_all,       %TODO: maybe change strategy
+                 intensity => 50,
+                 period => 5},
+    Childs = [#{id => mtp_down_conn_sup,
+                type => supervisor,
+                start => {mtp_down_conn_sup, start_link, []}},
+              #{id => mtp_dc_pool_sup,
+                type => supervisor,
+                start => {mtp_dc_pool_sup, start_link, []}},
+              #{id => mtp_config,
                 start => {mtp_config, start_link, []}}
              ],
-    {ok, {#{strategy => rest_for_one,
-            intensity => 50,
-            period => 5},
-          Childs} }.
-
-%%====================================================================
-%% Internal functions
-%%====================================================================
+    {ok, {SupFlags, Childs}}.

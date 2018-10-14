@@ -1,6 +1,10 @@
 {"1.1.0",
 [{<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"lager">>,{pkg,<<"lager">>,<<"3.6.3">>},0},
+ {<<"psq">>,
+  {git,"https://github.com/eryx67/psq.git",
+       {ref,"acf8cb6620a9f9cb6123cc45aeb8767fa1a2ab08"}},
+  0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.0">>},0}]}.
 [
 {pkg_hash,[
