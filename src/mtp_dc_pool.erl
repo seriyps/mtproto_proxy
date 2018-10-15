@@ -18,7 +18,8 @@
          get/3,
          return/2,
          add_connection/1,
-         ack_connected/2]).
+         ack_connected/2,
+         status/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -26,6 +27,7 @@
 
 -define(SERVER, ?MODULE).
 -define(APP, mtproto_proxy).
+-define(BURST_MAX, 10).
 
 -type upstream() :: mtp_handler:handle().
 -type downstream() :: mtp_down_conn:handle().
@@ -56,6 +58,9 @@ add_connection(Pool) ->
 ack_connected(Pool, Downstream) ->
     gen_server:cast(Pool, {connected, Downstream}).
 
+status(Pool) ->
+    gen_server:call(Pool, status).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -71,7 +76,18 @@ handle_call({get, Upstream, Opts}, _From, State) ->
     {reply, Downstream, State1};
 handle_call(add_connection, _From, State) ->
     State1 = connect(State),
-    {reply, ok, State1}.
+    {reply, ok, State1};
+handle_call(status, _From, #state{downstreams = Ds,
+                                  upstreams = Us} = State) ->
+    {NDowns, NUps, Min, Max} =
+        ds_fold(
+          fun(_Pid, N, {NDowns, NUps, Min, Max}) ->
+                  {NDowns + 1, NUps + N, min(Min, N), max(Max, N)}
+          end, {0, 0, map_size(Us), 0}, Ds),
+    {reply, #{n_downstreams => NDowns,
+              n_upstreams => NUps,
+              min => Min,
+              max => Max}, State}.
 
 handle_cast({return, Upstream}, State) ->
     {noreply, handle_return(Upstream, State)};
@@ -82,10 +98,10 @@ handle_info({'DOWN', MonitorRef, process, Pid, _Reason}, State) ->
     %% TODO: monitor downstream connections as well
     {noreply, handle_down(MonitorRef, Pid, State)}.
 terminate(_Reason, #state{downstreams = Ds}) ->
-    ds_foreach(
-      fun(Pid) ->
+    ds_fold(
+      fun(Pid, _, _) ->
               mtp_down_conn:shutdown(Pid)
-      end, Ds),
+      end, ok, Ds),
     %% upstreams will be killed by connection itself
     ok.
 code_change(_OldVsn, State, _Extra) ->
@@ -139,17 +155,23 @@ handle_down(MonRef, MaybeUpstream, #state{downstreams = Ds,
 
 maybe_spawn_connection(CurrentMin, #state{pending_downstreams = Pending} = St) ->
     %% TODO: shrinking (by timer)
-    case application:get_env(?APP, clients_per_dc_connection) of
-        {ok, N} when CurrentMin > N,
-                     Pending == [] ->
-            ToSpawn = 2,
-            lists:foldl(
-              fun(_, S) ->
-                      connect(S)
-              end, St, lists:seq(1, ToSpawn));
-        _ ->
-            St
-    end.
+    ToSpawn =
+        case application:get_env(?APP, clients_per_dc_connection) of
+            {ok, N} when CurrentMin > N,
+                         Pending == [] ->
+                2;
+            {ok, N} when CurrentMin > (N * 1.5),
+                         length(Pending) < ?BURST_MAX ->
+                %% To survive initial bursts
+                ?BURST_MAX - length(Pending);
+            _ ->
+                0
+        end,
+    lists:foldl(
+      fun(_, S) ->
+              connect(S)
+      end, St, lists:seq(1, ToSpawn)).
+
 
 %% Initiate new async connection
 connect(#state{pending_downstreams = Pending,
@@ -181,12 +203,13 @@ ds_new(Connections) ->
               pid_psq:add(Conn, Psq1)
       end, Psq, Connections).
 
--spec ds_foreach(fun( (downstream()) -> any() ), ds_store()) -> ok.
-ds_foreach(Fun, St) ->
+-spec ds_fold(fun( (downstream(), integer(), Acc) -> Acc ), Acc, ds_store()) -> Acc when
+      Acc :: any().
+ds_fold(Fun, Acc0, St) ->
     psq:fold(
-      fun(_, _N, Pid, _) ->
-              Fun(Pid)
-      end, ok, St).
+      fun(_, N, Pid, Acc) ->
+              Fun(Pid, N, Acc)
+      end, Acc0, St).
 
 %% Add new downstream to storage
 -spec ds_add_downstream(downstream(), ds_store()) -> ds_store().

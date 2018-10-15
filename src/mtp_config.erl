@@ -19,7 +19,8 @@
          get_downstream_pool/1,
          get_netloc/1,
          get_netloc_safe/1,
-         get_secret/0]).
+         get_secret/0,
+         status/0]).
 -export([register_name/2,
          unregister_name/1,
          whereis_name/1,
@@ -130,6 +131,15 @@ send(Name, Msg) ->
 get_secret() ->
     [{_, Key}] = ets:lookup(?TAB, key),
     Key.
+
+status() ->
+    [{?IDS_KEY, L}] = ets:lookup(?TAB, ?IDS_KEY),
+    lists:map(
+      fun(DcId) ->
+              DcPoolStatus = mtp_dc_pool:status(whereis_name(DcId)),
+              DcPoolStatus#{dc_id => DcId}
+      end, L).
+
 
 %%%===================================================================
 %%% gen_server callbacks

@@ -4,6 +4,7 @@
 %%% @doc
 %%% Supervisor for mtp_down_conn processes
 %%% @end
+%%% TODO: maybe have one supervisor per-DC
 %%% Created : 14 Oct 2018 by Sergey <me@seriyps.ru>
 %%%-------------------------------------------------------------------
 -module(mtp_down_conn_sup).
