@@ -291,11 +291,11 @@ down_send(Packet, #state{down = Down} = S) ->
 handle_upstream_header(DcId, #state{acc = Acc, ad_tag = Tag, addr = Addr} = S) ->
     Opts = #{ad_tag => Tag,
              addr => Addr},
-    {DcId, _Pool, Downstream} = mtp_config:get_downstream_safe(DcId, Opts),
+    {RealDcId, _Pool, Downstream} = mtp_config:get_downstream_safe(DcId, Opts),
     handle_upstream_data(
       Acc,
       S#state{down = Downstream,
-              dc_id = DcId,
+              dc_id = RealDcId,
               acc = <<>>,
               stage = tunnel}).
 
