@@ -294,10 +294,12 @@ handle_upstream_header(DcId, #state{acc = Acc, ad_tag = Tag, addr = Addr} = S) -
     {RealDcId, _Pool, Downstream} = mtp_config:get_downstream_safe(DcId, Opts),
     handle_upstream_data(
       Acc,
-      S#state{down = Downstream,
-              dc_id = RealDcId,
-              acc = <<>>,
-              stage = tunnel}).
+      switch_timer(
+        S#state{down = Downstream,
+                dc_id = RealDcId,
+                acc = <<>>,
+                stage = tunnel},
+        hibernate)).
 
 hex(Bin) ->
     <<begin

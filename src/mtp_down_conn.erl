@@ -145,6 +145,7 @@ handle_upstream_new(Upstream, Opts, #state{upstreams = Ups,
 %% Upstream process is exited (or about to exit)
 handle_upstream_closed(Upstream, #state{upstreams = Ups,
                                         upstreams_rev = UpsRev} = St) ->
+    %% See "mtproto-proxy.c:remove_ext_connection
     case maps:take(Upstream, Ups) of
         {{ConnId, _, _}, Ups1} ->
             UpsRev1 = maps:remove(ConnId, UpsRev),
@@ -153,7 +154,8 @@ handle_upstream_closed(Upstream, #state{upstreams = Ups,
             Packet = mtp_rpc:encode_packet(remote_closed, ConnId),
             down_send(Packet, St1);
         error ->
-            lager:warning("Unknown upstream ~p", [Upstream]),
+            %% It happens when we get rpc_close_ext
+            lager:info("Unknown upstream ~p", [Upstream]),
             {ok, St}
     end.
 
@@ -190,10 +192,21 @@ handle_downstream_data(Bin, #state{stage = handshake_2,
     end.
 
 -spec handle_rpc(mtp_rpc:packet(), #state{}) -> #state{}.
-handle_rpc({proxy_ans, ConnId, Data}, S) ->
-    up_send({proxy_ans, self(), Data}, ConnId, S);
-handle_rpc({close_ext, ConnId}, S) ->
-    up_send({close_ext, self()}, ConnId, S);
+handle_rpc({proxy_ans, ConnId, Data}, St) ->
+    up_send({proxy_ans, self(), Data}, ConnId, St);
+handle_rpc({close_ext, ConnId}, St) ->
+    #state{upstreams = Ups,
+           upstreams_rev = UpsRev} = St1 = up_send({close_ext, self()}, ConnId, St),
+    case maps:take(ConnId, UpsRev) of
+        {Upstream, UpsRev1} ->
+            Ups1 = maps:remove(Upstream, Ups),
+            St2 = St1#state{upstreams = Ups1,
+                            upstreams_rev = UpsRev1},
+            St2;
+        error ->
+            lager:warning("Unknown upstream ~p", [ConnId]),
+            St1
+    end;
 handle_rpc({simple_ack, ConnId, Confirm}, S) ->
     up_send({simple_ack, self(), Confirm}, ConnId, S).
 
@@ -210,10 +223,16 @@ down_send(Packet, #state{sock = Sock, codec = Codec} = St) ->
 
 
 up_send(Packet, ConnId, #state{upstreams_rev = UpsRev} = St) ->
-    %% lager:debug("Down>Up: ~w", [Packet]),
-    Upstream = maps:get(ConnId, UpsRev),
-    ok = mtp_handler:send(Upstream, Packet),
-    St.
+    case maps:find(ConnId, UpsRev) of
+      {ok, Upstream} ->
+        ok = mtp_handler:send(Upstream, Packet),
+        St;
+      error ->
+        lager:warning("Unknown connection_id=~w; ups=~w", [ConnId, maps:keys(UpsRev)]),
+        ClosedPacket = mtp_rpc:encode_packet(remote_closed, ConnId),
+        {ok, St1} = down_send(ClosedPacket, St),
+        St1
+    end.
 
 connect(DcId, S) ->
     {ok, {Host, Port}} = mtp_config:get_netloc(DcId),
