@@ -176,7 +176,7 @@ terminate(_Reason, #state{started_at = Started} = S) ->
     mtp_metric:histogram_observe(
       [?APP, session_lifetime, seconds],
       erlang:convert_time_unit(Lifetime, millisecond, native), #{}),
-    lager:debug("terminate ~p", [_Reason]),
+    lager:info("terminate ~p", [_Reason]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -262,7 +262,7 @@ up_send(Packet, #state{stage = tunnel,
                        codec = UpCodec,
                        sock = Sock,
                        transport = Transport} = S) ->
-    lager:debug(">TG: ~p", [Packet]),
+    %% lager:debug(">Up: ~p", [Packet]),
     {Encoded, UpCodec1} = mtp_layer:encode_packet(Packet, UpCodec),
     mtp_metric:rt([?APP, upstream_send_duration, seconds],
               fun() ->
@@ -280,7 +280,7 @@ up_send(Packet, #state{stage = tunnel,
     {ok, S#state{codec = UpCodec1}}.
 
 down_send(Packet, #state{down = Down} = S) ->
-    lager:debug("<TG: ~p", [Packet]),
+    %% lager:debug(">Down: ~p", [Packet]),
     ok = mtp_down_conn:send(Down, Packet),
     {ok, S}.
 

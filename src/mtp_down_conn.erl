@@ -115,6 +115,8 @@ handle_info(do_connect, #state{dc_id = DcId} = State) ->
 
 terminate(_Reason, #state{upstreams = Ups}) ->
     %% Should I do this or dc_pool? Maybe only when reason is 'normal'?
+    lager:warning("Downstream terminates with reason ~p; len(upstreams)=~p",
+                  [_Reason, map_size(Ups)]),
     Self = self(),
     lists:foreach(
       fun(Upstream) ->
@@ -228,7 +230,7 @@ up_send(Packet, ConnId, #state{upstreams_rev = UpsRev} = St) ->
         ok = mtp_handler:send(Upstream, Packet),
         St;
       error ->
-        lager:warning("Unknown connection_id=~w; ups=~w", [ConnId, maps:keys(UpsRev)]),
+        lager:warning("Unknown connection_id=~w", [ConnId]),
         ClosedPacket = mtp_rpc:encode_packet(remote_closed, ConnId),
         {ok, St1} = down_send(ClosedPacket, St),
         St1
