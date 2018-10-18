@@ -33,6 +33,7 @@
          acc = <<>> :: any(),
 
          secret :: binary(),
+         listener :: atom(),
 
          sock :: gen_tcp:socket(),
          transport :: transport(),
@@ -82,13 +83,11 @@ ranch_init({Ref, Transport, Opts}) ->
                    ]),
             gen_server:enter_loop(?MODULE, [], State);
         error ->
-            mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{}),
             exit(normal)
     end.
 
 init({Socket, Transport, [Name, Secret, Tag]}) ->
-    mtp_metric:set_context_labels([Name]),
-    mtp_metric:count_inc([?APP, in_connection, total], 1, #{}),
+    mtp_metric:count_inc([?APP, in_connection, total], 1, #{labels => [Name]}),
     case Transport:peername(Socket) of
         {ok, {Ip, Port}} ->
             lager:info("~s: new connection ~s:~p", [Name, inet:ntoa(Ip), Port]),
@@ -97,6 +96,7 @@ init({Socket, Transport, [Name, Secret, Tag]}) ->
                       #{timeout => {env, ?APP, TimeoutKey, TimeoutDefault}}),
             State = #state{sock = Socket,
                            secret = unhex(Secret),
+                           listener = Name,
                            transport = Transport,
                            ad_tag = unhex(Tag),
                            addr = {Ip, Port},
@@ -104,6 +104,7 @@ init({Socket, Transport, [Name, Secret, Tag]}) ->
                            timer = Timer},
             {ok, State};
         {error, Reason} ->
+            mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Name]}),
             lager:info("Can't read peername: ~p", [Reason]),
             error
     end.
@@ -112,7 +113,7 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
-handle_cast({proxy_ans, Down, Data}, #state{down = Down} = S) ->
+handle_cast({proxy_ans, Down, Data}, #state{down = Down, listener = Listener} = S) ->
     %% telegram server -> proxy
     case up_send(Data, S) of
         {ok, S1} ->
@@ -135,7 +136,9 @@ handle_cast(Other, State) ->
 handle_info({tcp, Sock, Data}, #state{sock = Sock,
                                       transport = Transport} = S) ->
     %% client -> proxy
-    track(rx, Data),
+    Size = byte_size(Data),
+    mtp_metric:count_inc([?APP, received, bytes], Size, #{labels => [upstream]}),
+    mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], Size, #{labels => [upstream]}),
     case handle_upstream_data(Data, S) of
         {ok, S1} ->
             ok = Transport:setopts(Sock, [{active, once}]),
@@ -151,15 +154,15 @@ handle_info({tcp_error, Sock, Reason}, #state{sock = Sock} = S) ->
     lager:info("upstream sock error: ~p", [Reason]),
     {stop, Reason, maybe_close_down(S)};
 
-handle_info(timeout, #state{timer = Timer, timer_state = TState} = S) ->
+handle_info(timeout, #state{timer = Timer, timer_state = TState, listener = Listener} = S) ->
     case gen_timeout:is_expired(Timer) of
         true when TState == stop;
                   TState == init ->
-            mtp_metric:count_inc([?APP, inactive_timeout, total], 1, #{}),
+            mtp_metric:count_inc([?APP, inactive_timeout, total], 1, #{labels => [Listener]}),
             lager:info("inactive timeout in state ~p", [TState]),
             {stop, normal, S};
         true when TState == hibernate ->
-            mtp_metric:count_inc([?APP, inactive_hibernate, total], 1, #{}),
+            mtp_metric:count_inc([?APP, inactive_hibernate, total], 1, #{labels => [Listener]}),
             {noreply, switch_timer(S, stop), hibernate};
         false ->
             Timer1 = gen_timeout:reset(Timer),
@@ -169,13 +172,13 @@ handle_info(Other, S) ->
     lager:warning("Unexpected msg ~p", [Other]),
     {noreply, S}.
 
-terminate(_Reason, #state{started_at = Started} = S) ->
+terminate(_Reason, #state{started_at = Started, listener = Listener} = S) ->
     maybe_close_down(S),
-    mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{}),
+    mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Listener]}),
     Lifetime = erlang:system_time(millisecond) - Started,
     mtp_metric:histogram_observe(
       [?APP, session_lifetime, seconds],
-      erlang:convert_time_unit(Lifetime, millisecond, native), #{}),
+      erlang:convert_time_unit(Lifetime, millisecond, native), #{labels => [Listener]}),
     lager:info("terminate ~p", [_Reason]),
     ok.
 
@@ -199,9 +202,9 @@ bump_timer(#state{timer = Timer, timer_state = TState} = S) ->
 
 switch_timer(#state{timer_state = TState} = S, TState) ->
     S;
-switch_timer(#state{timer_state = FromState, timer = Timer} = S, ToState) ->
+switch_timer(#state{timer_state = FromState, timer = Timer, listener = Listener} = S, ToState) ->
     mtp_metric:count_inc([?APP, timer_switch, total], 1,
-                     #{labels => [FromState, ToState]}),
+                     #{labels => [Listener, FromState, ToState]}),
     {NewTimeKey, NewTimeDefault} = state_timeout(ToState),
     Timer1 = gen_timeout:set_timeout(
                {env, ?APP, NewTimeKey, NewTimeDefault}, Timer),
@@ -220,7 +223,8 @@ state_timeout(stop) ->
 
 %% Handle telegram client -> proxy stream
 handle_upstream_data(Bin, #state{stage = tunnel,
-                                 codec = UpCodec} = S) ->
+                                 codec = UpCodec,
+                                 listener = Listener} = S) ->
     {ok, S3, UpCodec1} =
         mtp_layer:fold_packets(
           fun(Decoded, S1) ->
@@ -233,11 +237,11 @@ handle_upstream_data(Bin, #state{stage = tunnel,
           end, S, Bin, UpCodec),
     {ok, S3#state{codec = UpCodec1}};
 handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, stage_state = <<>>,
-                                                               secret = Secret} = S) ->
+                                                               secret = Secret, listener = Listener} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, ObfuscatedCodec} ->
             mtp_metric:count_inc([?APP, protocol_ok, total],
-                                 1, #{labels => [PacketLayerMod]}),
+                                 1, #{labels => [Listener, PacketLayerMod]}),
             ObfuscatedLayer = mtp_layer:new(mtp_obfuscated, ObfuscatedCodec),
             PacketLayer = mtp_layer:new(PacketLayerMod, PacketLayerMod:new()),
             UpCodec = mtp_layer:new(mtp_wrap, mtp_wrap:new(PacketLayer,
@@ -249,7 +253,7 @@ handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, sta
                       stage_state = undefined});
         {error, Reason} = Err ->
             mtp_metric:count_inc([?APP, protocol_error, total],
-                             1, #{labels => [Reason]}),
+                                 1, #{labels => [Reason]}),
             Err
     end;
 handle_upstream_data(Bin, #state{stage = init, stage_state = <<>>} = S) ->
@@ -261,7 +265,8 @@ handle_upstream_data(Bin, #state{stage = init, stage_state = Buf} = S) ->
 up_send(Packet, #state{stage = tunnel,
                        codec = UpCodec,
                        sock = Sock,
-                       transport = Transport} = S) ->
+                       transport = Transport,
+                       listener = Listener} = S) ->
     %% lager:debug(">Up: ~p", [Packet]),
     {Encoded, UpCodec1} = mtp_layer:encode_packet(Packet, UpCodec),
     mtp_metric:rt([?APP, upstream_send_duration, seconds],
@@ -272,7 +277,7 @@ up_send(Packet, #state{stage = tunnel,
                               is_atom(Reason) andalso
                                   mtp_metric:count_inc(
                                     [?APP, upstream_send_error, total], 1,
-                                    #{labels => [Reason]}),
+                                    #{labels => [Listener, Reason]}),
                               lager:warning("Upstream send error: ~p", [Reason]),
                               throw({stop, normal, S})
                       end
@@ -315,9 +320,3 @@ unhex(Chars) ->
                  (C) when C > $W -> C - $W
               end,
     << <<(UnHChar(C)):4>> || <<C>> <= Chars>>.
-
-
-track(Direction, Data) ->
-    Size = byte_size(Data),
-    mtp_metric:count_inc([?APP, tracker, bytes], Size, #{labels => [Direction]}),
-    mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], Size, #{labels => [Direction]}).

@@ -11,8 +11,7 @@
 -export([count_inc/3,
          gauge_set/3,
          histogram_observe/3,
-         rt/2,
-         set_context_labels/1]).
+         rt/2, rt/3]).
 
 -export([passive_metrics/0,
          active_metrics/0]).
@@ -24,10 +23,6 @@
 -type metric_name() :: [atom()].
 -type metric_doc() :: string().
 
-
-set_context_labels(Tags) when is_list(Tags) ->
-    erlang:put(?PD_KEY, Tags).
-
 count_inc(Name, Value, Extra) ->
     notify(count, Name, Value, Extra).
 
@@ -38,24 +33,21 @@ histogram_observe(Name, Value, Extra) ->
     notify(histogram, Name, Value, Extra).
 
 rt(Name, Fun) ->
+    rt(Name, Fun, #{}).
+
+rt(Name, Fun, Extra) ->
     Start = erlang:monotonic_time(),
     try
         Fun()
     after
-        notify(histogram, Name, erlang:monotonic_time() - Start, #{})
+        notify(histogram, Name, erlang:monotonic_time() - Start, Extra)
     end.
 
 
 notify(Type, Name, Value, Extra) ->
     case application:get_env(?APP, metric_backend) of
         {ok, Mod} ->
-            Extra1 = case erlang:get(?PD_KEY) of
-                         undefined -> Extra;
-                         ContextLabels ->
-                             MsgLabels = maps:get(labels, Extra, []),
-                             Extra#{labels => ContextLabels ++ MsgLabels}
-                     end,
-            Mod:notify(Type, Name, Value, Extra1);
+            Mod:notify(Type, Name, Value, Extra);
         _ ->
             false
     end.
@@ -66,11 +58,30 @@ notify(Type, Name, Value, Extra) ->
       Labels :: #{atom() => binary() | atom()},
       Value :: integer() | float().
 passive_metrics() ->
+    DownStatus = mtp_config:status(),
+    [{gauge, [?APP, dc_num_downstreams],
+      "Count of connections to downstream",
+      [{#{dc => DcId}, NDowns}
+       || #{n_downstreams := NDowns, dc_id := DcId} <- DownStatus]},
+     {gauge, [?APP, dc_num_upstreams],
+      "Count of upstreams connected to DC",
+      [{#{dc => DcId}, NUps}
+       || #{n_upstreams := NUps, dc_id := DcId} <- DownStatus]},
+     {gauge, [?APP, dc_upstreams_per_downstream],
+      "Count of upstreams connected to DC",
+      lists:flatmap(
+        fun(#{min := Min,
+              max := Max,
+              dc_id := DcId}) ->
+                [{#{dc => DcId, meter => min}, Min},
+                 {#{dc => DcId, meter => max}, Max}]
+        end,  DownStatus)}
+    |
     [{gauge, [?APP, connections, count],
       "Count of ranch connections",
       [{#{listener => H}, proplists:get_value(all_connections, P)}
        || {H, P} <- ranch:info(),
-          proplists:get_value(protocol, P) == mtp_handler]}].
+          proplists:get_value(protocol, P) == mtp_handler]}] ].
 
 -spec active_metrics() -> [{metric_type(), metric_name(), metric_doc(), Opts}]
                               when
@@ -101,32 +112,32 @@ active_metrics() ->
       "Connection timeout mode switches",
       #{labels => [listener, from, to]}},
 
-     {count, [?APP, tracker, bytes],
-      "Bytes transmitted according to tracker",
-      #{labels => [listener, direction]}},
+     {count, [?APP, received, bytes],
+      "Bytes transmitted from upstream/downstream socket",
+      #{labels => [direction]}},
      {histogram, [?APP, tracker_packet_size, bytes],
-      "Proxied packet size",
-      #{labels => [listener, direction],
+      "Received packet size",
+      #{labels => [direction],
         buckets => {exponential, 8, 4, 8}}},
 
      {histogram, [?APP, tg_packet_size, bytes],
       "Proxied telegram protocol packet size",
-      #{labels => [listener, direction],
+      #{labels => [direction],
         buckets => {exponential, 8, 4, 8}}},
 
      {count, [?APP, protocol_error, total],
       "Proxy protocol errors",
-      #{labels => [listener, reason]}},
+      #{labels => [reason]}},
      {count, [?APP, protocol_ok, total],
       "Proxy upstream protocol type",
       #{labels => [listener, protocol]}},
 
      {count, [?APP, out_connect_ok, total],
       "Proxy out connections",
-      #{labels => [listener, dc_id]}},
+      #{labels => [dc_id]}},
      {count, [?APP, out_connect_error, total],
       "Proxy out connect errors",
-      #{labels => [listener, reason]}},
+      #{labels => [dc_id, reason]}},
 
 
      {histogram, [?APP, upstream_send_duration, seconds],
@@ -135,22 +146,13 @@ active_metrics() ->
         %% buckets => ?MS_BUCKETS
         labels => [listener]
        }},
-     {histogram, [?APP, downstream_connect_duration, seconds],
-      "Duration of tcp connect to downstream",
-      #{duration_unit => seconds,
-        %% buckets => ?MS_BUCKETS
-        labels => [listener]
-       }},
      {histogram, [?APP, downstream_send_duration, seconds],
       "Duration of tcp send calls to downstream",
       #{duration_unit => seconds,
         %% buckets => ?MS_BUCKETS
-        labels => [listener]
+        labels => [dc]
        }},
      {count, [?APP, upstream_send_error, total],
       "Count of tcp send errors to upstream",
-      #{labels => [listener, reason]}},
-     {count, [?APP, downstream_send_error, total],
-      "Count of tcp send errors to downstream",
       #{labels => [listener, reason]}}
     ].

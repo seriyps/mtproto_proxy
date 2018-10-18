@@ -90,6 +90,8 @@ handle_cast(shutdown, State) ->
 
 
 handle_info({tcp, Sock, Data}, #state{sock = Sock} = S) ->
+    mtp_metric:count_inc([?APP, received, bytes], byte_size(Data), #{labels => [downstream]}),
+    mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], byte_size(Data), #{labels => [downstream]}),
     case handle_downstream_data(Data, S) of
         {ok, S1} ->
             ok = inet:setopts(Sock, [{active, once}]),
@@ -219,14 +221,14 @@ handle_rpc({simple_ack, ConnId, Confirm}, S) ->
     up_send({simple_ack, self(), Confirm}, ConnId, S).
 
 -spec down_send(iodata(), #state{}) -> {ok, #state{}}.
-down_send(Packet, #state{sock = Sock, codec = Codec} = St) ->
+down_send(Packet, #state{sock = Sock, codec = Codec, dc_id = DcId} = St) ->
     %% lager:debug("Up>Down: ~w", [Packet]),
     {Encoded, Codec1} = mtp_layer:encode_packet(Packet, Codec),
     mtp_metric:rt(
       [?APP, downstream_send_duration, seconds],
       fun() ->
               ok = gen_tcp:send(Sock, Encoded)
-      end),
+      end, #{labels => [DcId]}),
     {ok, St#state{codec = Codec1}}.
 
 
@@ -245,13 +247,19 @@ up_send(Packet, ConnId, #state{upstreams_rev = UpsRev} = St) ->
 
 connect(DcId, S) ->
     {ok, {Host, Port}} = mtp_config:get_netloc(DcId),
-    {ok, Sock} = tcp_connect(Host, Port),
-    mtp_metric:count_inc([?APP, out_connect_ok, total], 1,
-                         #{labels => [DcId]}),
-    AddrStr = inet:ntoa(Host),
-    lager:info("~s:~p: TCP connected", [AddrStr, Port]),
-    down_handshake1(S#state{sock = Sock,
-                            netloc = {Host, Port}}).
+    case tcp_connect(Host, Port) of
+        {ok, Sock} ->
+            mtp_metric:count_inc([?APP, out_connect_ok, total], 1,
+                                 #{labels => [DcId]}),
+            AddrStr = inet:ntoa(Host),
+            lager:info("~s:~p: TCP connected", [AddrStr, Port]),
+            down_handshake1(S#state{sock = Sock,
+                                    netloc = {Host, Port}});
+        {error, Reason} = Err ->
+            mtp_metric:count_inc([?APP, out_connect_error, total], 1,
+                                 #{labels => [DcId, Reason]}),
+            {Err, S}
+    end.
 
 tcp_connect(Host, Port) ->
     SockOpts = [{active, once},
@@ -260,10 +268,7 @@ tcp_connect(Host, Port) ->
                 {send_timeout, ?SEND_TIMEOUT},
                 %% {nodelay, true},
                 {keepalive, true}],
-    case mtp_metric:rt([?APP, downstream_connect_duration, seconds],
-                   fun() ->
-                           gen_tcp:connect(Host, Port, SockOpts, ?CONN_TIMEOUT)
-                   end) of
+    case gen_tcp:connect(Host, Port, SockOpts, ?CONN_TIMEOUT) of
         {ok, Sock} ->
             ok = inet:setopts(Sock, [%% {recbuf, ?MAX_SOCK_BUF_SIZE},
                                      %% {sndbuf, ?MAX_SOCK_BUF_SIZE},
