@@ -129,9 +129,14 @@ code_change(_OldVsn, State, _Extra) ->
 %% Send packet from upstream to downstream
 handle_send(Data, Upstream, #state{upstreams = Ups,
                                    addr_bin = ProxyAddr} = St) ->
-    UpstreamData = maps:get(Upstream, Ups),
-    Packet = mtp_rpc:encode_packet({data, Data}, {UpstreamData, ProxyAddr}),
-    down_send(Packet, St).
+    case Ups of
+        #{Upstream := UpstreamData} ->
+            Packet = mtp_rpc:encode_packet({data, Data}, {UpstreamData, ProxyAddr}),
+            down_send(Packet, St);
+        _ ->
+            lager:warning("Upstream=~p not found", [Upstream]),
+            {{error, unknown_upstream}, St}
+    end.
 
 %% New upstream connected
 handle_upstream_new(Upstream, Opts, #state{upstreams = Ups,
@@ -141,6 +146,7 @@ handle_upstream_new(Upstream, Opts, #state{upstreams = Ups,
     AdTag = maps:get(ad_tag, Opts, undefined),
     Ups1 = Ups#{Upstream => {ConnId, iolist_to_binary(mtp_rpc:encode_ip_port(Ip, Port)), AdTag}},
     UpsRev1 = UpsRev#{ConnId => Upstream},
+    lager:debug("New upstream=~p conn_id=~p", [Upstream, ConnId]),
     St#state{upstreams = Ups1,
              upstreams_rev = UpsRev1}.
 
@@ -226,14 +232,15 @@ down_send(Packet, #state{sock = Sock, codec = Codec} = St) ->
 
 up_send(Packet, ConnId, #state{upstreams_rev = UpsRev} = St) ->
     case maps:find(ConnId, UpsRev) of
-      {ok, Upstream} ->
-        ok = mtp_handler:send(Upstream, Packet),
-        St;
-      error ->
-        lager:warning("Unknown connection_id=~w", [ConnId]),
-        ClosedPacket = mtp_rpc:encode_packet(remote_closed, ConnId),
-        {ok, St1} = down_send(ClosedPacket, St),
-        St1
+        {ok, Upstream} ->
+            ok = mtp_handler:send(Upstream, Packet),
+            St;
+        error ->
+            lager:warning("Unknown connection_id=~w", [ConnId]),
+            %% WHY!!!?
+            %% ClosedPacket = mtp_rpc:encode_packet(remote_closed, ConnId),
+            %% {ok, St1} = down_send(ClosedPacket, St),
+            St
     end.
 
 connect(DcId, S) ->
