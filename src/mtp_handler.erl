@@ -281,7 +281,7 @@ up_send(Packet, #state{stage = tunnel,
                               lager:warning("Upstream send error: ~p", [Reason]),
                               throw({stop, normal, S})
                       end
-              end),
+              end, #{labels => [Listener]}),
     {ok, S#state{codec = UpCodec1}}.
 
 down_send(Packet, #state{down = Down} = S) ->
