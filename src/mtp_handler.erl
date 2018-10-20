@@ -307,7 +307,16 @@ up_send(Packet, #state{stage = tunnel,
     {Encoded, UpCodec1} = mtp_layer:encode_packet(Packet, UpCodec),
     mtp_metric:rt([?APP, upstream_send_duration, seconds],
               fun() ->
-                      ok = Transport:send(Sock, Encoded)
+                      case Transport:send(Sock, Encoded) of
+                          ok -> ok;
+                          {error, Reason} ->
+                              is_atom(Reason) andalso
+                                  mtp_metric:count_inc(
+                                    [?APP, upstream_send_error, total], 1,
+                                    #{labels => [Reason]}),
+                              lager:warning("Upstream send error: ~p", [Reason]),
+                              throw({stop, normal, S})
+                      end
               end),
     {ok, S#state{up_codec = UpCodec1}}.
 
@@ -316,7 +325,16 @@ down_send(Packet, #state{down_sock = Sock,
     {Encoded, DownCodec1} = mtp_layer:encode_packet(Packet, DownCodec),
     mtp_metric:rt([?APP, downstream_send_duration, seconds],
               fun() ->
-                      ok = gen_tcp:send(Sock, Encoded)
+                      case gen_tcp:send(Sock, Encoded) of
+                          ok -> ok;
+                          {error, Reason} ->
+                              is_atom(Reason) andalso
+                                  mtp_metric:count_inc(
+                                    [?APP, downstream_send_error, total], 1,
+                                    #{labels => [Reason]}),
+                              lager:warning("Downstream send error: ~p", [Reason]),
+                              throw({stop, normal, S})
+                      end
               end),
     {ok, S#state{down_codec = DownCodec1}}.
 

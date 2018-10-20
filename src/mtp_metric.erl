@@ -146,6 +146,11 @@ active_metrics() ->
       #{duration_unit => seconds,
         %% buckets => ?MS_BUCKETS
         labels => [listener]
-       }}
-
+       }},
+     {count, [?APP, upstream_send_error, total],
+      "Count of tcp send errors to upstream",
+      #{labels => [listener, reason]}},
+     {count, [?APP, downstream_send_error, total],
+      "Count of tcp send errors to downstream",
+      #{labels => [listener, reason]}}
     ].
