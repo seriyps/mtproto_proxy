@@ -123,7 +123,7 @@ active_metrics() ->
 
      {count, [?APP, out_connect_ok, total],
       "Proxy out connections",
-      #{labels => [listener, dc_id, addr]}},
+      #{labels => [listener, dc_id]}},
      {count, [?APP, out_connect_error, total],
       "Proxy out connect errors",
       #{labels => [listener, reason]}},
