@@ -1,4 +1,4 @@
-DESTDIR:=/
+DESTDIR:=
 prefix:=$(DESTDIR)/opt
 REBAR3:=./rebar3
 SERVICE:=$(DESTDIR)/etc/systemd/system/mtproto-proxy.service
@@ -16,13 +16,15 @@ config/prod-vm.args: config/vm.args.example
 	[ -f $@ ] && diff $^ $@ || true
 	cp -i -b $^ $@
 
+user:
+	sudo useradd -r $(USER) || true
+
 $(LOGDIR):
 	mkdir -p $(LOGDIR)
 	chown $(USER) $(LOGDIR)
 
 
-install: $(LOGDIR)
-	sudo useradd -r $(USER) || true
+install: user $(LOGDIR)
 	mkdir -p $(prefix)/mtp_proxy
 	cp -n -r _build/prod/rel/mtp_proxy $(prefix)/mtp_proxy
 	mkdir -p $(prefix)/mtp_proxy/log
