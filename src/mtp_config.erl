@@ -124,11 +124,11 @@ update(State, _) ->
     end.
 
 update_key(Tab) ->
-    {ok, {{_, 200, _}, _, Body}} = httpc:request(?SECRET_URL),
+    {ok, Body} = http_get(?SECRET_URL),
     true = ets:insert(Tab, {key, list_to_binary(Body)}).
 
 update_config(Tab) ->
-    {ok, {{_, 200, _}, _, Body}} = httpc:request(?CONFIG_URL),
+    {ok, Body} = http_get(?CONFIG_URL),
     Downstreams = parse_config(Body),
     Range = get_range(Downstreams),
     update_downstreams(Downstreams, Tab),
@@ -174,7 +174,7 @@ update_ip() ->
 
 update_ip([Url | Fallbacks]) ->
     try
-        {ok, {{_, 200, _}, _, Body}} = httpc:request(Url),
+        {ok, Body} = http_get(Url),
         IpStr= string:trim(Body),
         {ok, _} = inet:parse_ipv4strict_address(IpStr), %assert
         application:set_env(?APP, external_ip, IpStr)
@@ -185,6 +185,14 @@ update_ip([Url | Fallbacks]) ->
     end;
 update_ip([]) ->
     error(ip_lookup_failed).
+
+http_get(Url) ->
+    {ok, Vsn} = application:get_key(mtproto_proxy, vsn),
+    UserAgent = "MTProtoProxy/" ++ Vsn ++ " (+https://github.com/seriyps/mtproto_proxy)",
+    Headers = [{"User-Agent", UserAgent}],
+    {ok, {{_, 200, _}, _, Body}} =
+        httpc:request(get, {Url, Headers}, [{timeout, 3000}], []),
+    {ok, Body}.
 
 
 -ifdef(TEST).
