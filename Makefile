@@ -22,20 +22,19 @@ user:
 	sudo useradd -r $(USER) || true
 
 $(LOGDIR):
-	mkdir -p $(LOGDIR)
-	chown $(USER) $(LOGDIR)
+	mkdir -p $(LOGDIR)/
+	chown $(USER) $(LOGDIR)/
 
 
 install: user $(LOGDIR)
-	mkdir -p $(prefix)/mtp_proxy
-	cp -n -r _build/prod/rel/mtp_proxy $(prefix)/mtp_proxy
-	mkdir -p $(prefix)/mtp_proxy/log
-	chmod 777 $(prefix)/mtp_proxy/log
+	cp -n -r _build/prod/rel/mtp_proxy $(prefix)/mtp_proxy/
+	mkdir -p $(prefix)/mtp_proxy/log/
+	chmod 777 $(prefix)/mtp_proxy/log/
 	install -D config/mtproto-proxy.service $(SERVICE)
 	systemctl daemon-reload
 
 uninstall:
 # TODO: ensure service is stopped
 	rm $(SERVICE)
-	rm -r $(prefix)/mtp_proxy
+	rm -r $(prefix)/mtp_proxy/
 	systemctl daemon-reload
