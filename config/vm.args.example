@@ -1,4 +1,4 @@
--sname mtproto_proxy
+-name mtproto_proxy@0.0.0.0
 
 -setcookie mtproto-proxy-cookie
 
