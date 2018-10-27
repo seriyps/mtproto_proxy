@@ -38,7 +38,7 @@
 -record(state,
         {dc_id :: mtp_config:dc_id(),
          %% This one might be really big:
-         upstreams = #{} :: #{upstream() => downstream()},
+         upstreams = #{} :: #{upstream() => {downstream(), Monitor :: reference()}},
          %% On-demand downstreams are started asynchronously;
          pending_downstreams = [] :: [pid()],
          %% Downstream storage that allows to choose the one with minimal
@@ -142,7 +142,6 @@ handle_get(Upstream, Opts, #state{downstreams = Ds,
                                   upstreams = Us} = St) ->
     {Downstream, N, Ds1} = ds_get(Ds),
     MonRef = erlang:monitor(process, Upstream),
-    %% if N > X and len(pending) < Y -> connect()
     Us1 = Us#{Upstream => {Downstream, MonRef}},
     ok = mtp_down_conn:upstream_new(Downstream, Upstream, Opts),
     {Downstream, maybe_spawn_connection(
@@ -186,6 +185,7 @@ handle_down(MonRef, Pid, #state{downstreams = Ds,
     end.
 
 maybe_spawn_connection(CurrentMin, #state{pending_downstreams = Pending} = St) ->
+    %% if N > X and len(pending) < Y -> connect()
     %% TODO: shrinking (by timer)
     ToSpawn =
         case application:get_env(?APP, clients_per_dc_connection) of

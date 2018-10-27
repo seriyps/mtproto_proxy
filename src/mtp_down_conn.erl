@@ -41,13 +41,13 @@
 -record(state, {stage = init :: stage(),
                 stage_state = [] :: any(),
                 sock :: gen_tcp:socket() | undefined,
-                addr_bin :: binary(),           % my external ip:port
+                addr_bin :: binary() | undefined,           % my external ip:port
                 codec :: mtp_layer:layer() | undefined,
                 upstreams = #{} :: #{mtp_handler:handle() => upstream()},
                 upstreams_rev = #{} :: #{mtp_rpc:conn_id() => mtp_handler:handle()},
                 pool :: pid(),
                 dc_id :: mtp_config:dc_id(),
-                netloc :: mtp_config:netloc()   % telegram server ip:port
+                netloc :: mtp_config:netloc() | undefined   % telegram server ip:port
                }).
 
 start_link(Pool, DcId) ->
