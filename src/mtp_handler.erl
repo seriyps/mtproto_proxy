@@ -39,7 +39,7 @@
          transport :: transport(),
          codec = ident :: mtp_layer:layer(),
 
-         down :: gen_tcp:socket(),
+         down :: mtp_down_conn:handle(),
          dc_id :: integer(),
 
          ad_tag :: binary(),
@@ -113,7 +113,7 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
-handle_cast({proxy_ans, Down, Data}, #state{down = Down, listener = Listener} = S) ->
+handle_cast({proxy_ans, Down, Data}, #state{down = Down} = S) ->
     %% telegram server -> proxy
     case up_send(Data, S) of
         {ok, S1} ->
@@ -223,8 +223,7 @@ state_timeout(stop) ->
 
 %% Handle telegram client -> proxy stream
 handle_upstream_data(Bin, #state{stage = tunnel,
-                                 codec = UpCodec,
-                                 listener = Listener} = S) ->
+                                 codec = UpCodec} = S) ->
     {ok, S3, UpCodec1} =
         mtp_layer:fold_packets(
           fun(Decoded, S1) ->

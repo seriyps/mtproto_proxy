@@ -19,7 +19,9 @@
          return/2,
          add_connection/1,
          ack_connected/2,
-         status/1]).
+         status/1,
+         valid_dc_id/1,
+         dc_to_pool_name/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -50,7 +52,17 @@
 %%% API
 %%%===================================================================
 start_link(DcId) ->
-    gen_server:start_link({via, mtp_config, DcId}, ?MODULE, DcId, []).
+    gen_server:start_link({local, dc_to_pool_name(DcId)}, ?MODULE, DcId, []).
+
+valid_dc_id(DcId) ->
+    is_integer(DcId) andalso
+        -10 < DcId andalso
+        10 > DcId.
+
+dc_to_pool_name(DcId)  ->
+    valid_dc_id(DcId) orelse error(invalid_dc_id, [DcId]),
+    binary_to_atom(<<"mtp_dc_pool_", (integer_to_binary(DcId))/binary>>, utf8).
+
 
 get(Pool, Upstream, #{addr := _} = Opts) ->
     gen_server:call(Pool, {get, Upstream, Opts}).
@@ -257,6 +269,7 @@ ds_get(St) ->
 %% Return connection back to storage
 -spec ds_return(downstream(), ds_store()) -> ds_store().
 ds_return(Pid, St) ->
+    %% It may return 'undefined' if down_conn crashed
     {ok, St1} = pid_psq:dec_priority(Pid, St),
     St1.
 
