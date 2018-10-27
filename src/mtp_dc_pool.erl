@@ -270,8 +270,13 @@ ds_get(St) ->
 -spec ds_return(downstream(), ds_store()) -> ds_store().
 ds_return(Pid, St) ->
     %% It may return 'undefined' if down_conn crashed
-    {ok, St1} = pid_psq:dec_priority(Pid, St),
-    St1.
+    case pid_psq:dec_priority(Pid, St) of
+        {ok, St1} ->
+            St1;
+        undefined ->
+            lager:warning("Attempt to release unknown connection ~p", [Pid]),
+            St
+    end.
 
 -spec ds_remove(downstream(), ds_store()) -> ds_store().
 ds_remove(Downstream, St) ->
