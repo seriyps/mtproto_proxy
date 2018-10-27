@@ -320,7 +320,7 @@ check_queue_overflow(#state{last_queue_check = LastCheck} = S) ->
         true ->
             {noreply, S};
         false ->
-            case do_check_queue_overflow() of
+            case do_check_queue_overflow(true) of
                 ok ->
                     {noreply, S#state{last_queue_check = NowMs}};
                 overflow ->
@@ -328,7 +328,7 @@ check_queue_overflow(#state{last_queue_check = LastCheck} = S) ->
             end
     end.
 
-do_check_queue_overflow() ->
+do_check_queue_overflow(Gc) ->
     [{_, QLen}, {_, Mem}, {_, Bin}] =
         erlang:process_info(self(), [message_queue_len, memory, binary]),
     %% BinSum = sum_binary(Bin),
@@ -339,6 +339,9 @@ do_check_queue_overflow() ->
             RefcBinSize = sum_binary(Bin),
             TotalMem = Mem + RefcBinSize,
             case TotalMem > ?QUEUE_CHECK_MAX_MEM of
+                true when Gc->
+                    erlang:garbage_collect(self()),
+                    do_check_queue_overflow(false);
                 true ->
                     lager:warning(
                       "Process too large queue_len=~w, memory=~w, binary_sum=~w, binary=~p",
