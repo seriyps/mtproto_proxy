@@ -26,7 +26,7 @@
 -define(APP, mtproto_proxy).
 -define(CONN_TIMEOUT, 10000).
 -define(SEND_TIMEOUT, 15000).
--define(MAX_SOCK_BUF_SIZE, 1024 * 300).    % Decrease if CPU is cheaper than RAM
+-define(MAX_SOCK_BUF_SIZE, 1024 * 500).    % Decrease if CPU is cheaper than RAM
 
 -type handle() :: pid().
 -type upstream_opts() :: #{addr := mtp_config:netloc(), % IP/Port of TG client
@@ -262,17 +262,17 @@ connect(DcId, S) ->
     end.
 
 tcp_connect(Host, Port) ->
+    BufSize = application:get_env(?APP, downstream_socket_buffer_size,
+                                  ?MAX_SOCK_BUF_SIZE),
     SockOpts = [{active, once},
                 {packet, raw},
-                binary,
+                {mode, binary},
+                {buffer, BufSize},
                 {send_timeout, ?SEND_TIMEOUT},
                 %% {nodelay, true},
                 {keepalive, true}],
     case gen_tcp:connect(Host, Port, SockOpts, ?CONN_TIMEOUT) of
         {ok, Sock} ->
-            ok = inet:setopts(Sock, [%% {recbuf, ?MAX_SOCK_BUF_SIZE},
-                                     %% {sndbuf, ?MAX_SOCK_BUF_SIZE},
-                                     {buffer, ?MAX_SOCK_BUF_SIZE}]),
             {ok, Sock};
         {error, _} = Err ->
             Err
