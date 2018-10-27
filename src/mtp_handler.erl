@@ -63,12 +63,15 @@ ranch_init({Ref, Socket, Transport, _} = Opts) ->
     case init(Opts) of
         {ok, State} ->
             ok = ranch:accept_ack(Ref),
-            ok = Transport:setopts(Socket,
-                                   [{active, once},
-                                    %% {recbuf, ?MAX_SOCK_BUF_SIZE},
-                                    %% {sndbuf, ?MAX_SOCK_BUF_SIZE},
-                                    {buffer, ?MAX_SOCK_BUF_SIZE}
-                                   ]),
+            BufSize = application:get_env(?APP, upstream_socket_buffer_size,
+                                          ?MAX_SOCK_BUF_SIZE),
+            ok = Transport:setopts(
+                   Socket,
+                   [{active, once},
+                    %% {recbuf, ?MAX_SOCK_BUF_SIZE},
+                    %% {sndbuf, ?MAX_SOCK_BUF_SIZE},
+                    {buffer, BufSize}
+                   ]),
             gen_server:enter_loop(?MODULE, [], State);
         error ->
             mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{}),
@@ -361,10 +364,13 @@ handle_upstream_header(DcId, S) ->
 -define(SEND_TIMEOUT, 60 * 1000).
 
 connect(Host, Port) ->
+    BufSize = application:get_env(?APP, downstream_socket_buffer_size,
+                                  ?MAX_SOCK_BUF_SIZE),
     SockOpts = [{active, once},
                 {packet, raw},
-                binary,
+                {mode, binary},
                 {send_timeout, ?SEND_TIMEOUT},
+                {buffer, BufSize},
                 %% {nodelay, true},
                 {keepalive, true}],
     case mtp_metric:rt([?APP, downstream_connect_duration, seconds],
@@ -372,9 +378,6 @@ connect(Host, Port) ->
                            gen_tcp:connect(Host, Port, SockOpts, ?CONN_TIMEOUT)
                    end) of
         {ok, Sock} ->
-            ok = inet:setopts(Sock, [%% {recbuf, ?MAX_SOCK_BUF_SIZE},
-                                     %% {sndbuf, ?MAX_SOCK_BUF_SIZE},
-                                     {buffer, ?MAX_SOCK_BUF_SIZE}]),
             {ok, Sock};
         {error, _} = Err ->
             Err

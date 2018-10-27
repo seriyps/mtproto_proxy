@@ -60,6 +60,11 @@
         %% module with function `notify/4' exported.
         %% See mtp_metric:notify/4 for details
         %% {metric_backend, my_metric_backend}
+
+        %% User-space recv socket buffer sizes. Set to higher if you have
+        %% enough RAM
+        %% {upstream_socket_buffer_size, 51200},   %50kb
+        %% {downstream_socket_buffer_size, 51200}   %50kb
        ]},
   {modules, []},
 
