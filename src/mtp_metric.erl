@@ -111,6 +111,9 @@ active_metrics() ->
      {count, [?APP, timer_switch, total],
       "Connection timeout mode switches",
       #{labels => [listener, from, to]}},
+     {count, [?APP, healthcheck, total],
+      "Upstream self-healthcheck triggered some action",
+      #{labels => [action]}},
 
      {count, [?APP, received, bytes],
       "Bytes transmitted from upstream/downstream socket",
