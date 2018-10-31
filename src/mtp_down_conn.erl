@@ -92,14 +92,9 @@ handle_cast(shutdown, State) ->
 handle_info({tcp, Sock, Data}, #state{sock = Sock} = S) ->
     mtp_metric:count_inc([?APP, received, bytes], byte_size(Data), #{labels => [downstream]}),
     mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], byte_size(Data), #{labels => [downstream]}),
-    case handle_downstream_data(Data, S) of
-        {ok, S1} ->
-            ok = inet:setopts(Sock, [{active, once}]),
-            {noreply, S1};
-        {error, Reason} ->
-            lager:error("Error sending tunnelled data to in socket: ~p", [Reason]),
-            {stop, normal, S}
-    end;
+    {ok, S1} = handle_downstream_data(Data, S),
+    ok = inet:setopts(Sock, [{active, once}]),
+    {noreply, S1};
 handle_info({tcp_closed, Sock}, #state{sock = Sock} = State) ->
     {stop, normal, State};
 handle_info({tcp_error, Sock, Reason}, #state{sock = Sock} = State) ->

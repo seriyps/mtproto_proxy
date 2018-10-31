@@ -63,7 +63,7 @@ try_decode_packet_len(Len, Data, #int_st{padding = Pad} = St) ->
             {incomplete, St#int_st{buffer = Data}}
     end.
 
--spec encode_packet(iodata(), codec()) -> iodata().
+-spec encode_packet(iodata(), codec()) -> {iodata(), codec()}.
 encode_packet(Data, #int_st{padding = Pad} = St) ->
     Size = iolist_size(Data),
     Packet = case Pad of

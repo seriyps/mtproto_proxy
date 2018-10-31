@@ -19,8 +19,9 @@
 -export_type([codec/0]).
 
 -type state() :: any().
--type crypto_codec() :: mtb_aes_cbc
-                      | mtp_obfuscated.
+-type crypto_codec() :: mtp_aes_cbc
+                      | mtp_obfuscated
+                      | mtp_noop_codec.
 -type packet_codec() :: mtp_abridged
                       | mtp_full
                       | mtp_intermediate
@@ -58,6 +59,7 @@ decompose(#codec{crypto_mod = CryptoMod, crypto_state = CryptoState,
 
 
 %% try_decode_packet(Inner) |> try_decode_packet(Outer)
+-spec try_decode_packet(binary(), codec()) -> {ok, binary(), codec()} | {incomplete, codec()}.
 try_decode_packet(Bin, #codec{crypto_mod = CryptoMod,
                               crypto_state = CryptoSt,
                               packet_mod = PacketMod,
@@ -80,6 +82,7 @@ try_decode_packet(Bin, #codec{crypto_mod = CryptoMod,
     end.
 
 %% encode_packet(Outer) |> encode_packet(Inner)
+-spec encode_packet(iodata(), codec()) -> {iodata(), codec()}.
 encode_packet(Bin, #codec{packet_mod = PacketMod,
                           packet_state = PacketSt,
                           crypto_mod = CryptoMod,

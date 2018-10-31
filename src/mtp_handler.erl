@@ -44,7 +44,7 @@
          transport :: transport(),
          codec :: mtp_codec:codec() | undefined,
 
-         down :: mtp_down_conn:handle(),
+         down :: mtp_down_conn:handle() | undefined,
          dc_id :: integer(),
 
          ad_tag :: binary(),
@@ -88,7 +88,7 @@ ranch_init({Ref, Transport, Opts}) ->
                     {buffer, BufSize}
                    ]),
             gen_server:enter_loop(?MODULE, [], State);
-        error ->
+        {stop, error} ->
             exit(normal)
     end.
 
@@ -114,7 +114,7 @@ init({Socket, Transport, [Name, Secret, Tag]}) ->
         {error, Reason} ->
             mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Name]}),
             lager:info("Can't read peername: ~p", [Reason]),
-            error
+            {stop, error}
     end.
 
 handle_call(_Request, _From, State) ->
@@ -123,13 +123,8 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({proxy_ans, Down, Data}, #state{down = Down} = S) ->
     %% telegram server -> proxy
-    case up_send(Data, S) of
-        {ok, S1} ->
-            maybe_check_health(bump_timer(S1));
-        {error, Reason} ->
-            lager:error("Error sending tunnelled data to in socket: ~p", [Reason]),
-            {stop, normal, S}
-    end;
+    {ok, S1} = up_send(Data, S),
+    maybe_check_health(bump_timer(S1));
 handle_cast({close_ext, Down}, #state{down = Down, sock = USock, transport = UTrans} = S) ->
     lager:debug("asked to close connection by downstream"),
     ok = UTrans:close(USock),

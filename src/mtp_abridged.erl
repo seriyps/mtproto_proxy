@@ -56,7 +56,7 @@ try_decode_packet_len(Len, LenStripped, Data, St) ->
             {incomplete, St#st{buffer = Data}}
     end.
 
--spec encode_packet(binary(), codec()) -> iodata().
+-spec encode_packet(binary(), codec()) -> {iodata(), codec()}.
 encode_packet(Bin, St) ->
     Size = byte_size(Bin),
     Len = Size div 4,

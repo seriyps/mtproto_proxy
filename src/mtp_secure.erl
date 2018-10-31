@@ -24,6 +24,6 @@ new() ->
 try_decode_packet(Data, St) ->
     mtp_intermediate:try_decode_packet(Data, St).
 
--spec encode_packet(iodata(), codec()) -> iodata().
+-spec encode_packet(iodata(), codec()) -> {iodata(), codec()}.
 encode_packet(Data, St) ->
     mtp_intermediate:encode_packet(Data, St).
