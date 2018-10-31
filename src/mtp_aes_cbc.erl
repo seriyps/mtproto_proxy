@@ -6,7 +6,7 @@
 %%% Created :  6 Jun 2018 by Sergey <me@seriyps.ru>
 
 -module(mtp_aes_cbc).
--behaviour(mtp_layer).
+-behaviour(mtp_codec).
 
 -export([new/5,
          encrypt/2,

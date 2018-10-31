@@ -6,7 +6,7 @@
 %%% Created : 29 May 2018 by Sergey <me@seriyps.ru>
 
 -module(mtp_obfuscated).
--behaviour(mtp_layer).
+-behaviour(mtp_codec).
 -export([create/0,
          create/1,
          from_header/2,

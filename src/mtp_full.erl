@@ -9,7 +9,7 @@
 %%% Created :  6 Jun 2018 by Sergey <me@seriyps.ru>
 
 -module(mtp_full).
--behaviour(mtp_layer).
+-behaviour(mtp_codec).
 
 -export([new/0, new/2,
          try_decode_packet/2,

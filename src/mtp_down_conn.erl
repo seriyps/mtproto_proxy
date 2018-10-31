@@ -42,7 +42,7 @@
                 stage_state = [] :: any(),
                 sock :: gen_tcp:socket() | undefined,
                 addr_bin :: binary() | undefined,           % my external ip:port
-                codec :: mtp_layer:layer() | undefined,
+                codec :: mtp_codec:codec() | undefined,
                 upstreams = #{} :: #{mtp_handler:handle() => upstream()},
                 upstreams_rev = #{} :: #{mtp_rpc:conn_id() => mtp_handler:handle()},
                 pool :: pid(),
@@ -173,7 +173,7 @@ handle_upstream_closed(Upstream, #state{upstreams = Ups,
 handle_downstream_data(Bin, #state{stage = tunnel,
                                    codec = DownCodec} = S) ->
     {ok, S3, DownCodec1} =
-        mtp_layer:fold_packets(
+        mtp_codec:fold_packets(
           fun(Decoded, S1) ->
                   mtp_metric:histogram_observe(
                     [?APP, tg_packet_size, bytes],
@@ -184,7 +184,7 @@ handle_downstream_data(Bin, #state{stage = tunnel,
     {ok, S3#state{codec = DownCodec1}};
 handle_downstream_data(Bin, #state{stage = handshake_1,
                                    codec = DownCodec} = S) ->
-    case mtp_layer:try_decode_packet(Bin, DownCodec) of
+    case mtp_codec:try_decode_packet(Bin, DownCodec) of
         {ok, Packet, DownCodec1} ->
             down_handshake2(Packet, S#state{codec = DownCodec1});
         {incomplete, DownCodec1} ->
@@ -192,7 +192,7 @@ handle_downstream_data(Bin, #state{stage = handshake_1,
     end;
 handle_downstream_data(Bin, #state{stage = handshake_2,
                                    codec = DownCodec} = S) ->
-    case mtp_layer:try_decode_packet(Bin, DownCodec) of
+    case mtp_codec:try_decode_packet(Bin, DownCodec) of
         {ok, Packet, DownCodec1} ->
             %% TODO: There might be something in downstream buffers after stage3,
             %% would be nice to run foldl
@@ -223,7 +223,7 @@ handle_rpc({simple_ack, ConnId, Confirm}, S) ->
 -spec down_send(iodata(), #state{}) -> {ok, #state{}}.
 down_send(Packet, #state{sock = Sock, codec = Codec, dc_id = DcId} = St) ->
     %% lager:debug("Up>Down: ~w", [Packet]),
-    {Encoded, Codec1} = mtp_layer:encode_packet(Packet, Codec),
+    {Encoded, Codec1} = mtp_codec:encode_packet(Packet, Codec),
     mtp_metric:rt(
       [?APP, downstream_send_duration, seconds],
       fun() ->
@@ -292,16 +292,17 @@ down_handshake1(S) ->
             1:32/little,                        %AES
             CryptoTs:32/little,
             Nonce/binary>>,
-    Full = mtp_full:new(-2, -2),
-    S1 = S#state{codec = mtp_layer:new(mtp_full, Full),
-                 stage = handshake_1,
+    S1 = S#state{stage = handshake_1,
+                 %% Use fake encryption codec
+                 codec = mtp_codec:new(mtp_noop_codec, mtp_noop_codec:new(),
+                                       mtp_full, mtp_full:new(-2, -2)),
                  stage_state = {KeySelector, Nonce, CryptoTs, Key}},
     down_send(Msg, S1).
 
 down_handshake2(<<Type:4/binary, KeySelector:4/binary, Schema:32/little, _CryptoTs:4/binary,
                   SrvNonce:16/binary>>, #state{stage_state = {MyKeySelector, CliNonce, MyTs, Key},
-                                               sock = Sock,
-                                               codec = DownCodec} = S) ->
+                                               codec = Codec1,
+                                               sock = Sock} = S) ->
     (Type == ?RPC_NONCE) orelse error({wrong_rpc_type, Type}),
     (Schema == 1) orelse error({wrong_schema, Schema}),
     (KeySelector == MyKeySelector) orelse error({wrong_key_selector, KeySelector}),
@@ -314,15 +315,17 @@ down_handshake2(<<Type:4/binary, KeySelector:4/binary, Schema:32/little, _Crypto
              clt_ip => MyIpBin, clt_port => MyPort, secret => Key},
     {EncKey, EncIv} = get_middle_key(Args#{purpose => <<"CLIENT">>}),
     {DecKey, DecIv} = get_middle_key(Args#{purpose => <<"SERVER">>}),
-    CryptoCodec = mtp_layer:new(mtp_aes_cbc, mtp_aes_cbc:new(EncKey, EncIv, DecKey, DecIv, 16)),
-    DownCodec1 = mtp_layer:new(mtp_wrap, mtp_wrap:new(DownCodec, CryptoCodec)),
+    {_, _, PacketMod, PacketState} = mtp_codec:decompose(Codec1),
+    CryptoState = mtp_aes_cbc:new(EncKey, EncIv, DecKey, DecIv, 16),
+    Codec = mtp_codec:new(mtp_aes_cbc, CryptoState,
+                          PacketMod, PacketState),
     SenderPID = PeerPID = <<"IPIPPRPDTIME">>,
     Handshake = [?RPC_HANDSHAKE,
                  ?RPC_FLAGS,
                  SenderPID,
                  PeerPID],
     down_send(Handshake,
-              S#state{codec = DownCodec1,
+              S#state{codec = Codec,
                       stage = handshake_2,
                       addr_bin = iolist_to_binary(mtp_rpc:encode_ip_port(MyIp, MyPort)),
                       stage_state = SenderPID}).

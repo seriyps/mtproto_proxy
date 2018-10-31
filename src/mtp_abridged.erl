@@ -6,7 +6,7 @@
 %%% Created : 29 May 2018 by Sergey <me@seriyps.ru>
 
 -module(mtp_abridged).
--behaviour(mtp_layer).
+-behaviour(mtp_codec).
 
 -export([new/0,
          try_decode_packet/2,

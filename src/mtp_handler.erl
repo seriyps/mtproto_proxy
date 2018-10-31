@@ -42,7 +42,7 @@
 
          sock :: gen_tcp:socket(),
          transport :: transport(),
-         codec = ident :: mtp_layer:layer(),
+         codec :: mtp_codec:codec() | undefined,
 
          down :: mtp_down_conn:handle(),
          dc_id :: integer(),
@@ -234,7 +234,7 @@ state_timeout(stop) ->
 handle_upstream_data(Bin, #state{stage = tunnel,
                                  codec = UpCodec} = S) ->
     {ok, S3, UpCodec1} =
-        mtp_layer:fold_packets(
+        mtp_codec:fold_packets(
           fun(Decoded, S1) ->
                   mtp_metric:histogram_observe(
                     [?APP, tg_packet_size, bytes],
@@ -247,16 +247,15 @@ handle_upstream_data(Bin, #state{stage = tunnel,
 handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, stage_state = <<>>,
                                                                secret = Secret, listener = Listener} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
-        {ok, DcId, PacketLayerMod, ObfuscatedCodec} ->
+        {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
             mtp_metric:count_inc([?APP, protocol_ok, total],
                                  1, #{labels => [Listener, PacketLayerMod]}),
-            ObfuscatedLayer = mtp_layer:new(mtp_obfuscated, ObfuscatedCodec),
-            PacketLayer = mtp_layer:new(PacketLayerMod, PacketLayerMod:new()),
-            UpCodec = mtp_layer:new(mtp_wrap, mtp_wrap:new(PacketLayer,
-                                                           ObfuscatedLayer)),
+            PacketCodec = PacketLayerMod:new(),
+            Codec = mtp_codec:new(mtp_obfuscated, CryptoCodecSt,
+                                  PacketLayerMod, PacketCodec),
             handle_upstream_header(
               DcId,
-              S#state{codec = UpCodec,
+              S#state{codec = Codec,
                       acc = Rest,
                       stage_state = undefined});
         {error, Reason} = Err ->
@@ -276,7 +275,7 @@ up_send(Packet, #state{stage = tunnel,
                        transport = Transport,
                        listener = Listener} = S) ->
     %% lager:debug(">Up: ~p", [Packet]),
-    {Encoded, UpCodec1} = mtp_layer:encode_packet(Packet, UpCodec),
+    {Encoded, UpCodec1} = mtp_codec:encode_packet(Packet, UpCodec),
     mtp_metric:rt([?APP, upstream_send_duration, seconds],
               fun() ->
                       case Transport:send(Sock, Encoded) of

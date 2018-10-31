@@ -7,7 +7,7 @@
 
 -module(mtp_secure).
 
--behaviour(mtp_layer).
+-behaviour(mtp_codec).
 
 -export([new/0,
          try_decode_packet/2,

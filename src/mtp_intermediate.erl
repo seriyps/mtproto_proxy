@@ -7,7 +7,7 @@
 
 -module(mtp_intermediate).
 
--behaviour(mtp_layer).
+-behaviour(mtp_codec).
 
 -export([new/0,
          new/1,
