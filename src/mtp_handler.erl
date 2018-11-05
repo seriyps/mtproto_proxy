@@ -155,8 +155,8 @@ handle_info({tcp_closed, Sock}, #state{sock = Sock} = S) ->
     lager:debug("upstream sock closed"),
     {stop, normal, maybe_close_down(S)};
 handle_info({tcp_error, Sock, Reason}, #state{sock = Sock} = S) ->
-    lager:info("upstream sock error: ~p", [Reason]),
-    {stop, Reason, maybe_close_down(S)};
+    lager:warning("upstream sock error: ~p", [Reason]),
+    {stop, normal, maybe_close_down(S)};
 
 handle_info(timeout, #state{timer = Timer, timer_state = TState, listener = Listener} = S) ->
     case gen_timeout:is_expired(Timer) of
