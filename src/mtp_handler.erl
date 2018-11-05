@@ -28,7 +28,7 @@
 -define(HEALTH_CHECK_INTERVAL, 5000).
 -define(HEALTH_CHECK_MAX_QLEN, 300).
 -define(HEALTH_CHECK_GC, 400 * 1024).            %400kb
--define(HEALTH_CHECK_MAX_MEM, 4 * 1024 * 1024).  %4mb
+-define(HEALTH_CHECK_MAX_MEM, 3 * 1024 * 1024).  %3mb
 
 -define(APP, mtproto_proxy).
 
@@ -124,6 +124,7 @@ handle_call(_Request, _From, State) ->
 handle_cast({proxy_ans, Down, Data}, #state{down = Down} = S) ->
     %% telegram server -> proxy
     {ok, S1} = up_send(Data, S),
+    ok = mtp_down_conn:ack(Down, 1, iolist_size(Data)),
     maybe_check_health(bump_timer(S1));
 handle_cast({close_ext, Down}, #state{down = Down, sock = USock, transport = UTrans} = S) ->
     lager:debug("asked to close connection by downstream"),

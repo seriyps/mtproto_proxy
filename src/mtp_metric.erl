@@ -143,6 +143,9 @@ active_metrics() ->
       #{labels => [dc_id, reason]}},
 
 
+     {count, [?APP, down_backpressure, total],
+      "Times downstream backpressure state was changed",
+      #{labels => [dc_id, enabled]}},
      {histogram, [?APP, upstream_send_duration, seconds],
       "Duration of tcp send calls to upstream",
       #{duration_unit => seconds,
