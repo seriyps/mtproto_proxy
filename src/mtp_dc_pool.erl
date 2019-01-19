@@ -173,13 +173,13 @@ handle_down(MonRef, Pid, #state{downstreams = Ds,
                 {Pid, DsM1} ->
                     Pending1 = lists:delete(Pid, Pending),
                     Ds1 = ds_remove(Pid, Ds),
-                    lager:warning("Downstream=~p is down", [Pid]),
+                    lager:error("Downstream=~p is down", [Pid]),
                     St#state{pending_downstreams = Pending1,
                              downstreams = Ds1,
                              downstream_monitors = DsM1};
                 _ ->
-                    lager:warning("Unexpected DOWN. ref=~p, pid=~p",
-                                  [MonRef, Pid]),
+                    lager:error("Unexpected DOWN. ref=~p, pid=~p",
+                                [MonRef, Pid]),
                     St
             end
     end.
@@ -211,7 +211,6 @@ connect_many(ToSpawn, St) ->
 connect(#state{pending_downstreams = Pending,
                downstream_monitors = DsM,
                dc_id = DcId} = St) ->
-    %% Should monitor connection PIDs as well!
     Pid = do_connect(DcId),
     MonRef = erlang:monitor(process, Pid),
     St#state{pending_downstreams = [Pid | Pending],
@@ -223,12 +222,19 @@ do_connect(DcId) ->
     Pid.
 
 %% Block until all async connections are acked
-wait_pending(#state{pending_downstreams = Pending} = St) ->
+wait_pending(#state{pending_downstreams = Pending,
+                    downstream_monitors = DsM} = St) ->
     lists:foldl(
       fun(Pid, #state{pending_downstreams = [Pid | Remaining],
                       downstreams = Ds} = St1) ->
               receive
-                  {'$gen_cast', {connected, Pid}} -> Pid
+                  {'$gen_cast', {connected, Pid}} -> Pid;
+                  {'DOWN', MonitorRef, process, Pid, Reason} ->
+                      %% maybe try to re-connect?
+                      (maps:get(MonitorRef, DsM, undefined) == Pid)
+                          orelse exit({unexpected_down,
+                                       MonitorRef, Pid, Reason}),
+                      exit({connection_failed, Pid, Reason})
               after 10000 ->
                       exit({timeout, receive Smth -> Smth after 0 -> none end})
               end,
