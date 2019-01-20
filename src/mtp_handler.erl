@@ -129,7 +129,7 @@ handle_cast({proxy_ans, Down, Data}, #state{down = Down} = S) ->
 handle_cast({close_ext, Down}, #state{down = Down, sock = USock, transport = UTrans} = S) ->
     lager:debug("asked to close connection by downstream"),
     ok = UTrans:close(USock),
-    {stop, normal, S};
+    {stop, normal, S#state{down = undefined}};
 handle_cast({simple_ack, Down, Confirm}, #state{down = Down} = S) ->
     lager:info("Simple ack: ~p, ~p", [Down, Confirm]),
     {noreply, S};
@@ -289,8 +289,24 @@ up_send(Packet, #state{stage = tunnel,
 
 down_send(Packet, #state{down = Down} = S) ->
     %% lager:debug(">Down: ~p", [Packet]),
-    ok = mtp_down_conn:send(Down, Packet),
-    {ok, S}.
+    case mtp_down_conn:send(Down, Packet) of
+        ok ->
+            {ok, S};
+        {error, unknown_upstream} ->
+            handle_unknown_upstream(S)
+    end.
+
+handle_unknown_upstream(#state{down = Down, sock = USock, transport = UTrans} = S) ->
+    %% there might be a race-condition between packets from upstream socket and
+    %% downstream's 'close_ext' message. Most likely because of slow up_send
+    ok = UTrans:close(USock),
+    receive
+        {'$gen_cast', {close_ext, Down}} ->
+            lager:debug("asked to close connection by downstream"),
+            throw({stop, normal, S#state{down = undefined}})
+    after 0 ->
+            throw({stop, got_unknown_upstream, S})
+    end.
 
 
 %% Internal
