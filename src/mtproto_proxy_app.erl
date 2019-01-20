@@ -8,7 +8,7 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, stop/1, start_proxy/1]).
+-export([start/2, prep_stop/1, stop/1, start_proxy/1]).
 -define(APP, mtproto_proxy).
 
 %%====================================================================
@@ -23,8 +23,11 @@ start(_StartType, _StartArgs) ->
     Res.
 
 %%--------------------------------------------------------------------
-stop(_State) ->
+prep_stop(State) ->
     [stop_proxy(Where) || Where <- application:get_env(?APP, ports, [])],
+    State.
+
+stop(_State) ->
     ok.
 
 %%====================================================================
