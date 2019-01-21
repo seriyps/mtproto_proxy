@@ -45,7 +45,7 @@
          codec :: mtp_codec:codec() | undefined,
 
          down :: mtp_down_conn:handle() | undefined,
-         dc_id :: integer(),
+         dc_id :: {DcId :: integer(), Pool :: pid()},
 
          ad_tag :: binary(),
          addr :: mtp_config:netloc(),           % IP/Port of remote side
@@ -191,8 +191,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 maybe_close_down(#state{down = undefined} = S) -> S;
-maybe_close_down(#state{dc_id = DcId} = S) ->
-    {ok, Pool} = mtp_config:get_downstream_pool(DcId),
+maybe_close_down(#state{dc_id = {_DcId, Pool}} = S) ->
     mtp_dc_pool:return(Pool, self()),
     S#state{down = undefined}.
 
@@ -315,12 +314,12 @@ handle_unknown_upstream(#state{down = Down, sock = USock, transport = UTrans} = 
 handle_upstream_header(DcId, #state{acc = Acc, ad_tag = Tag, addr = Addr} = S) ->
     Opts = #{ad_tag => Tag,
              addr => Addr},
-    {RealDcId, _Pool, Downstream} = mtp_config:get_downstream_safe(DcId, Opts),
+    {RealDcId, Pool, Downstream} = mtp_config:get_downstream_safe(DcId, Opts),
     handle_upstream_data(
       Acc,
       switch_timer(
         S#state{down = Downstream,
-                dc_id = RealDcId,
+                dc_id = {RealDcId, Pool},
                 acc = <<>>,
                 stage = tunnel},
         hibernate)).

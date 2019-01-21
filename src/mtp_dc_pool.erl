@@ -113,9 +113,8 @@ handle_cast({return, Upstream}, State) ->
 handle_cast({connected, Pid}, State) ->
     {noreply, handle_connected(Pid, State)}.
 
-handle_info({'DOWN', MonitorRef, process, Pid, _Reason}, State) ->
-    %% TODO: monitor downstream connections as well
-    {noreply, handle_down(MonitorRef, Pid, State)}.
+handle_info({'DOWN', MonitorRef, process, Pid, Reason}, State) ->
+    {noreply, handle_down(MonitorRef, Pid, Reason, State)}.
 terminate(_Reason, #state{downstreams = Ds}) ->
     ds_fold(
       fun(Pid, _, _) ->
@@ -158,10 +157,10 @@ handle_return(Upstream, #state{downstreams = Ds,
     St#state{downstreams = Ds1,
              upstreams = Us1}.
 
-handle_down(MonRef, Pid, #state{downstreams = Ds,
-                                downstream_monitors = DsM,
-                                upstreams = Us,
-                                pending_downstreams = Pending} = St) ->
+handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
+                                        downstream_monitors = DsM,
+                                        upstreams = Us,
+                                        pending_downstreams = Pending} = St) ->
     case maps:take(Pid, Us) of
         {{Downstream, MonRef}, Us1} ->
             ok = mtp_down_conn:upstream_closed(Downstream, Pid),
@@ -173,13 +172,14 @@ handle_down(MonRef, Pid, #state{downstreams = Ds,
                 {Pid, DsM1} ->
                     Pending1 = lists:delete(Pid, Pending),
                     Ds1 = ds_remove(Pid, Ds),
-                    lager:error("Downstream=~p is down", [Pid]),
+                    lager:error("Downstream=~p is down. reason=~p",
+                                [Pid, Reason]),
                     St#state{pending_downstreams = Pending1,
                              downstreams = Ds1,
                              downstream_monitors = DsM1};
                 _ ->
-                    lager:error("Unexpected DOWN. ref=~p, pid=~p",
-                                [MonRef, Pid]),
+                    lager:error("Unexpected DOWN. ref=~p, pid=~p, reason=~p",
+                                [MonRef, Pid, Reason]),
                     St
             end
     end.
