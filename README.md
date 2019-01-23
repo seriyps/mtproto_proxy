@@ -17,8 +17,21 @@ Features
 * Small codebase compared to oficial one
 * A lots of metrics could be exported (optional)
 
-How to start - quick
---------------------
+How to start - docker
+---------------------
+
+1. Get the code `git clone https://github.com/seriyps/mtproto_proxy.git && cd mtproto_proxy/`
+2. Copy config templates `cp config/{vm.args.example,prod-vm.args}; cp config/{sys.config.example,prod-sys.config}`
+3. Edit configs. See [Settings](#settings).
+4. Build `docker build -t mtproto-proxy-erl .`
+5. Start `docker run -d --network=host mtproto-proxy-erl`
+
+Installation via docker can work well for small setups (10-20k connections), but
+for more heavily-loaded setups it's recommended to install proxy directly into
+your server's OS (see below).
+
+How to start without docker - quick
+-----------------------------------
 
 ```
 sudo apt install erlang-nox erlang-dev build-essential
@@ -33,8 +46,8 @@ sudo systemctl enable mtproto-proxy
 sudo systemctl start mtproto-proxy
 ```
 
-How to start - detailed
---------------------
+How to start without docker - detailed
+--------------------------------------
 
 
 ### Install deps (ubuntu 18.04)
