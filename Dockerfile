@@ -12,6 +12,8 @@ COPY rebar3 rebar3
 COPY rebar.config rebar.config
 COPY rebar.lock rebar.lock
 COPY config config
+RUN [ ! -f config/prod-sys.config ] && cp config/sys.config.example config/prod-sys.config
+RUN [ ! -f config/prod-vm.args ] && cp config/vm.args.example config/prod-vm.args
 
 RUN rebar3 as prod release
 
