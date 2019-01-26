@@ -19,10 +19,12 @@ RUN rebar3 as prod release
 
 FROM alpine
 RUN apk add --no-cache openssl && \
-    apk add --no-cache ncurses-libs
+    apk add --no-cache ncurses-libs && \
+    apk add --no-cache dumb-init
 
 RUN mkdir -p /opt
 RUN mkdir -p /var/log/mtproto-proxy
 COPY --from=0 /build/mtproto_proxy/_build/prod/rel/mtp_proxy /opt/mtp_proxy
 
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["/opt/mtp_proxy/bin/mtp_proxy", "foreground"]
