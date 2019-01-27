@@ -1,0 +1,137 @@
+%% -*- erlang -*-
+%% Cuttlefish schema
+
+%% Proxy IP (optional)
+{mapping, "mtp.proxy.$name.listen_ip", "mtproto_proxy.ports",
+ [{default, "0.0.0.0"},
+  {datatype, string},
+  {include_default, "default"}]}.
+
+%% @doc Proxy port
+%% It's possible to stat as many proxies at the same time as you want.
+%% Just add more lines like `mtp.proxy.<name>.port/secret/tag`
+%% Name means nothing, but it should be unique.
+{mapping, "mtp.proxy.$name.port", "mtproto_proxy.ports",
+ [{default, 1443},
+  {datatype, integer},
+  {include_default, "default"}]}.
+
+%% @doc Proxy secret
+{mapping, "mtp.proxy.$name.secret", "mtproto_proxy.ports",
+ [{default, "d0d6e111bada5511fcce9584deadbeef"},
+  {datatype, string},
+  {include_default, "default"}]}.
+
+%% @doc Proxy port
+{mapping, "mtp.proxy.$name.tag", "mtproto_proxy.ports",
+ [{default, "dcbe8f1493fa4cd9ab300891c0b5b326"},
+  {datatype, string},
+  {include_default, "default"}]}.
+
+{translation, "mtproto_proxy.ports",
+ fun(Conf) ->
+         ProxyConf = cuttlefish_variable:filter_by_prefix("mtp.proxy", Conf),
+         PortsMap =
+             lists:foldl(
+               fun({ [_, _, Name, Key], Val}, Acc) ->
+                       PortConf = maps:get(Name, Acc, #{}),
+                       AKey = list_to_atom(Key),
+                       PConf1 = PortConf#{AKey => Val},
+                       Acc#{Name => PConf1}
+               end, #{}, ProxyConf),
+         lists:map(
+           fun({Name, #{secret := Secret, tag := Tag} = PortConf}) ->
+                   PortConf#{name => list_to_atom(Name),
+                             secret := list_to_binary(Secret),
+                             tag := list_to_binary(Tag)}
+           end, maps:to_list(PortsMap))
+ end
+}.
+
+%% @doc Close connection if it failed to perform handshake in this much time
+{mapping, "mtp.init_timeout", "mtproto_proxy.init_timeout_sec",
+ [
+  {default, 60},
+  {datatype, {duration, s}}
+ ]}.
+
+{mapping, "mtp.hibernate_timeout", "mtproto_proxy.hibernate_timeout_sec",
+ [
+  {default, 60},
+  {datatype, {duration, s}}
+ ]}.
+
+%% @doc Close connection after this many seconds of inactivity
+{mapping, "mtp.ready_timeout", "mtproto_proxy.ready_timeout_sec",
+ [
+  {default, 1200},
+  {datatype, {duration, s}}
+ ]}.
+
+%% @doc Telegram server uses your external IP address as part of encryption
+%% key, so, proxy should know it.
+%% You can configure IP lookup services by `ip_lookup_service' (should
+%% return my IP address as one line from this URL) or set IP address
+%% statically by `external_ip' (not both).
+%% If both are unset, proxy will try to guess IP address
+%% from getsockname().
+%% You can add as many services as you want.
+%% `ip_lookup_service's will be tried one-by-one: if 1st is not responding,
+%% 2nd one will be tried and so on
+{mapping, "mtp.ip_lookup_service.$idx", "mtproto_proxy.ip_lookup_services",
+ [{default, "http://ip.seriyps.ru/"},
+  {datatype, string},
+  {include_default, "1"}
+ ]}.
+
+{translation,
+ "mtproto_proxy.ip_lookup_services",
+ fun(Conf) ->
+         Urls = cuttlefish_variable:filter_by_prefix("mtp.ip_lookup_service", Conf),
+         [Url || {_, Url} <- Urls]
+ end
+}.
+
+%% @doc Interface to listen for incoming connections
+%% If not set, 0.0.0.0 will be used
+{mapping, "mtp.listen_ip", "mtproto_proxy.listen_ip",
+ [{default, "0.0.0.0"},
+  {datatype, string}
+ ]}.
+
+{mapping, "mtp.num_acceptors", "mtproto_proxy.num_acceptors",
+ [{default, 60},
+  {datatype, integer}]}.
+
+%% @doc Maximum number of connections
+{mapping, "mtp.max_connections", "mtproto_proxy.max_connections",
+ [{default, 40960},
+  {datatype, integer}]}.
+
+%% @doc set to "on" to only allow random-padding connections ('dd'-secrets)
+{mapping, "mtp.dd_only", "mtproto_proxy.allowed_protocols",
+ [{datatype, flag},
+  {default, "off"}
+ ]}.
+
+{translation, "mtproto_proxy.allowed_protocols",
+ fun(Conf) ->
+         case cuttlefish:conf_get("mtp.dd_only", Conf) of
+             true -> [mtp_secure];
+             false -> [mtp_abridged, mtp_intermediate, mtp_secure]
+         end
+ end
+}.
+
+{mapping, "mtp.upstream_socket_buffer", "mtproto_proxy.upstream_socket_buffer_size",
+ [{datatype, bytesize},
+  {commented, 51200}]}.
+
+{mapping, "mtp.downstream_socket_buffer", "mtproto_proxy.downstream_socket_buffer_size",
+ [{datatype, bytesize},
+  {commented, 51200}]}.
+
+
+{mapping, "logger.log_root", "lager.log_root",
+ [{datatype, directory},
+  {default, "/var/log/mtproto-proxy"}]}.
