@@ -45,7 +45,7 @@
          codec :: mtp_codec:codec() | undefined,
 
          down :: mtp_down_conn:handle() | undefined,
-         dc_id :: {DcId :: integer(), Pool :: pid()},
+         dc_id :: {DcId :: integer(), Pool :: pid()} | undefined,
 
          ad_tag :: binary(),
          addr :: mtp_config:netloc(),           % IP/Port of remote side

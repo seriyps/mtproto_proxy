@@ -18,7 +18,7 @@
 -export_type([tout/0, opts/0]).
 
 -record(timeout,
-        {ref :: reference(),
+        {ref :: reference() | undefined,
          last_bump :: integer(),
          message :: any(),
          unit = second :: erlang:time_unit(),

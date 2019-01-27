@@ -13,6 +13,8 @@
          encode_packet/2]).
 -export_type([codec/0]).
 
+-dialyzer(no_improper_lists).
+
 -record(st,
         {buffer = <<>> :: binary()}).
 -define(MAX_PACKET_SIZE, 1 * 1024 * 1024).      % 1mb

@@ -15,6 +15,8 @@
          encode_packet/2]).
 -export_type([codec/0]).
 
+-dialyzer(no_improper_lists).
+
 -record(int_st,
         {padding = false :: boolean(),
          buffer = <<>> :: binary()}).

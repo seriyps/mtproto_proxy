@@ -13,6 +13,8 @@
          encode_ip_port/2]).
 -export_type([codec/0]).
 
+-dialyzer(no_improper_lists).
+
 -record(rpc_st,
         {client_addr :: binary(),
          proxy_addr :: binary(),
@@ -97,7 +99,7 @@ encode_packet({data, Msg}, {{ConnId, ClientAddr, ProxyTag}, ProxyAddr}) ->
 encode_packet(remote_closed, ConnId) ->
     <<?RPC_CLOSE_CONN, ConnId:64/little-signed>>.
 
-
+-spec encode_ip_port(inet:ip_address(), inet:port_number()) -> iodata().
 encode_ip_port(IPv4, Port) when tuple_size(IPv4) == 4 ->
     IpBin = inet_pton(IPv4),
     [lists:duplicate(10, <<0>>)

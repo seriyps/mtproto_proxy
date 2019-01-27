@@ -16,6 +16,8 @@
          encode_packet/2]).
 -export_type([codec/0]).
 
+-dialyzer(no_improper_lists).
+
 -record(full_st,
         {decode_buf = <<>> :: binary(),
          enc_seq_no :: integer(),

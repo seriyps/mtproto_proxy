@@ -76,7 +76,7 @@ shutdown(Conn) ->
     gen_server:cast(Conn, shutdown).
 
 %% To be called by upstream
--spec send(handle(), iodata()) -> ok.
+-spec send(handle(), iodata()) -> ok | {error, unknown_upstream}.
 send(Conn, Data) ->
     gen_server:call(Conn, {send, Data}, ?SEND_TIMEOUT * 2).
 
