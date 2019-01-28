@@ -137,11 +137,11 @@ handle_cast(Other, State) ->
     lager:warning("Unexpected msg ~p", [Other]),
     {noreply, State}.
 
-handle_info({tcp, Sock, Data}, #state{sock = Sock,
-                                      transport = Transport} = S) ->
+handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
+                                      listener = Listener} = S) ->
     %% client -> proxy
     Size = byte_size(Data),
-    mtp_metric:count_inc([?APP, received, bytes], Size, #{labels => [upstream]}),
+    mtp_metric:count_inc([?APP, received, upstream, bytes], Size, #{labels => [Listener]}),
     mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], Size, #{labels => [upstream]}),
     case handle_upstream_data(Data, S) of
         {ok, S1} ->
@@ -274,7 +274,11 @@ up_send(Packet, #state{stage = tunnel,
     mtp_metric:rt([?APP, upstream_send_duration, seconds],
               fun() ->
                       case Transport:send(Sock, Encoded) of
-                          ok -> ok;
+                          ok ->
+                              mtp_metric:count_inc(
+                                [?APP, sent, upstream, bytes],
+                                iolist_size(Encoded), #{labels => [Listener]}),
+                              ok;
                           {error, Reason} ->
                               is_atom(Reason) andalso
                                   mtp_metric:count_inc(

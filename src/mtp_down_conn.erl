@@ -104,8 +104,8 @@ handle_cast(shutdown, State) ->
     {stop, shutdown, State}.
 
 
-handle_info({tcp, Sock, Data}, #state{sock = Sock} = S) ->
-    mtp_metric:count_inc([?APP, received, bytes], byte_size(Data), #{labels => [downstream]}),
+handle_info({tcp, Sock, Data}, #state{sock = Sock, dc_id = DcId} = S) ->
+    mtp_metric:count_inc([?APP, received, downstream, bytes], byte_size(Data), #{labels => [DcId]}),
     mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], byte_size(Data), #{labels => [downstream]}),
     {ok, S1} = handle_downstream_data(Data, S),
     activate_if_no_overflow(S1),
@@ -239,7 +239,10 @@ down_send(Packet, #state{sock = Sock, codec = Codec, dc_id = DcId} = St) ->
     mtp_metric:rt(
       [?APP, downstream_send_duration, seconds],
       fun() ->
-              ok = gen_tcp:send(Sock, Encoded)
+              ok = gen_tcp:send(Sock, Encoded),
+              mtp_metric:count_inc(
+                [?APP, sent, downstream, bytes],
+                iolist_size(Encoded), #{labels => [DcId]})
       end, #{labels => [DcId]}),
     {ok, St#state{codec = Codec1}}.
 
