@@ -111,9 +111,9 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock} = S) ->
     activate_if_no_overflow(S1),
     {noreply, S1};
 handle_info({tcp_closed, Sock}, #state{sock = Sock} = State) ->
-    {stop, normal, State};
+    {stop, downstream_socket_closed, State};
 handle_info({tcp_error, Sock, Reason}, #state{sock = Sock} = State) ->
-    {stop, Reason, State};
+    {stop, {downstream_tcp_error, Reason}, State};
 handle_info(do_connect, #state{dc_id = DcId} = State) ->
     try
         {ok, St1} = connect(DcId, State),
