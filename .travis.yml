@@ -6,4 +6,5 @@ otp_release:
   #- 18.3 not supported (string:lexemes/2, tricky binary comprehension, map typespec with `:=`, ?assertEqual/3)
 script:
   - ./rebar3 compile
+  - ./rebar3 xref
   - ./rebar3 eunit
