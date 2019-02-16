@@ -38,5 +38,7 @@
        %% Rotate when file size is 100MB+
        {size, 104857600}
       ]}
-    ]}]}
+    ]}]},
+ {sasl,
+  [{errlog_type, error}]}
 ].

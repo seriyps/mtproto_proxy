@@ -12,13 +12,33 @@ Features
 * Secure-only mode (only allow connections with 'dd'-secrets). See `allowed_protocols` option.
 * Multiple ports with unique secret and promo tag for each port
 * Automatic configuration reload (no need for restarts once per day)
-* Most of the configuration options might be updated without service restart
+* Most of the configuration options can be updated without service restart
 * Very high performance - can handle tens of thousands connections! Scales to all CPU cores.
-* Small codebase compared to oficial one
+* Small codebase compared to official one
 * A lots of metrics could be exported (optional)
 
 How to start - docker
 ---------------------
+
+### To run with default settings
+
+```bash
+docker run -d --network=host seriyps/mtproto-proxy
+```
+
+### To run on single port with custom port, secret and ad-tag
+
+```bash
+docker run -d --network=host seriyps/mtproto-proxy -p 443 -s d0d6e111bada5511fcce9584deadbeef -t dcbe8f1493fa4cd9ab300891c0b5b326
+```
+
+Where
+
+* `-p 443` proxy port
+* `-s d0d6e111bada5511fcce9584deadbeef` proxy secret (don't append `dd`! it should be 32 chars long!)
+* `-t dcbe8f1493fa4cd9ab300891c0b5b326` ad-tag that you get from [@MTProxybot](https://t.me/MTProxybot)
+
+### To run with custom config-file
 
 1. Get the code `git clone https://github.com/seriyps/mtproto_proxy.git && cd mtproto_proxy/`
 2. Copy config templates `cp config/{vm.args.example,prod-vm.args}; cp config/{sys.config.example,prod-sys.config}`
@@ -30,10 +50,10 @@ Installation via docker can work well for small setups (10-20k connections), but
 for more heavily-loaded setups it's recommended to install proxy directly into
 your server's OS (see below).
 
-How to start without docker - quick
+How to start OS-install - quick
 -----------------------------------
 
-```
+```bash
 sudo apt install erlang-nox erlang-dev build-essential
 git clone https://github.com/seriyps/mtproto_proxy.git
 cd mtproto_proxy/
@@ -46,13 +66,13 @@ sudo systemctl enable mtproto-proxy
 sudo systemctl start mtproto-proxy
 ```
 
-How to start without docker - detailed
+How to start OS-install - detailed
 --------------------------------------
 
 
 ### Install deps (ubuntu 18.04)
 
-```
+```bash
 sudo apt install erlang-nox erlang-dev build-essential
 ```
 
@@ -62,7 +82,7 @@ or use [kerl](https://github.com/kerl/kerl).
 
 ### Get the code:
 
-```
+```bash
 git clone https://github.com/seriyps/mtproto_proxy.git
 cd mtproto_proxy/
 ```
@@ -73,7 +93,7 @@ see [Settings](#settings).
 
 ### Build and install
 
-```
+```bash
 make && sudo make install
 ```
 
@@ -84,9 +104,19 @@ This will:
 * create a directory for logs in `/var/log/mtproto-proxy`
 * Configure ulimit of max open files and `CAP_NET_BIND_SERVICE` by systemd
 
-### Start and enable start on system start-up
+### Try to start in foreground mode
 
+This step is optional, but it can be usefull to test if everything works as expected
+
+```bash
+./start.sh
 ```
+
+try to run `./start.sh -h` to learn some useful options.
+
+### Start in background and enable start on system start-up
+
+```bash
 sudo systemctl enable mtproto-proxy
 sudo systemctl start mtproto-proxy
 ```
@@ -97,13 +127,13 @@ Done! Proxy is up and ready to serve now!
 
 Stop:
 
-```
+```bash
 sudo systemctl stop mtproto-proxy
 ```
 
 Uninstall:
 
-```
+```bash
 sudo systemctl stop mtproto-proxy
 sudo systemctl disable mtproto-proxy
 sudo make uninstall
@@ -130,9 +160,11 @@ Secret key and proxy URL will be printed on start.
 
 The easiest way to update config right now is to edit `config/prod-sys.config`
 and then re-install proxy by
-```
+
+```bash
 sudo make uninstall && make && sudo make install
 ```
+
 There are other ways as well. It's even possible to update configuration options
 without service restart / without downtime, but it's a bit trickier.
 
@@ -140,7 +172,7 @@ without service restart / without downtime, but it's a bit trickier.
 
 To change default settings, change `mtproto_proxy` section of `prod-sys.config` as:
 
-```
+```erlang
  {mtproto_proxy,
   %% see src/mtproto_proxy.app.src for examples.
   %% DO NOT EDIT src/mtproto_proxy.app.src!!!
@@ -164,7 +196,7 @@ To change default settings, change `mtproto_proxy` section of `prod-sys.config` 
 You can start proxy on many IP addresses or ports with different secrets/ad tags.
 To do so, just add more configs to `ports` section, separated by comma, eg:
 
-```
+```erlang
  {mtproto_proxy,
   %% see src/mtproto_proxy.app.src for examples.
   %% DO NOT EDIT src/mtproto_proxy.app.src!!!
@@ -194,7 +226,7 @@ Each section should have unique `name`!
 It might be useful in Iran, where proxies are detected by DPI.
 You should disable all protocols other than `mtp_secure` by providing `allowed_protocols` option:
 
-```
+```erlang
   {mtproto_proxy,
    [
     {allowed_protocols, [mtp_secure]},
@@ -209,6 +241,6 @@ Helpers
 
 Number of connections
 
-```
+```erlang
 /opt/mtp_proxy/bin/mtp_proxy eval 'lists:sum([proplists:get_value(all_connections, L) || {_, L} <- ranch:info()]).'
 ```
