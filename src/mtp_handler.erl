@@ -49,8 +49,8 @@
 
 %% APIs
 
-start_link(Ref, Socket, Transport, Opts) ->
-    {ok, proc_lib:spawn_link(?MODULE, ranch_init, [{Ref, Socket, Transport, Opts}])}.
+start_link(Ref, _Socket, Transport, Opts) ->
+    {ok, proc_lib:spawn_link(?MODULE, ranch_init, [{Ref, Transport, Opts}])}.
 
 keys_str() ->
     [{Name, Port, hex(Secret)}
@@ -59,10 +59,10 @@ keys_str() ->
 %% Callbacks
 
 %% Custom gen_server init
-ranch_init({Ref, Socket, Transport, _} = Opts) ->
-    case init(Opts) of
+ranch_init({Ref, Transport, Opts}) ->
+    {ok, Socket} = ranch:handshake(Ref),
+    case init({Socket, Transport, Opts}) of
         {ok, State} ->
-            ok = ranch:accept_ack(Ref),
             BufSize = application:get_env(?APP, upstream_socket_buffer_size,
                                           ?MAX_SOCK_BUF_SIZE),
             ok = Transport:setopts(
@@ -78,7 +78,7 @@ ranch_init({Ref, Socket, Transport, _} = Opts) ->
             exit(normal)
     end.
 
-init({_Ref, Socket, Transport, [Name, Secret, Tag]}) ->
+init({Socket, Transport, [Name, Secret, Tag]}) ->
     mtp_metric:set_context_labels([Name]),
     mtp_metric:count_inc([?APP, in_connection, total], 1, #{}),
     case Transport:peername(Socket) of

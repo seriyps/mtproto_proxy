@@ -40,10 +40,10 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
     Res =
         ranch:start_listener(
           Name, ranch_tcp,
-          [{ip, ListenIp},
-           {port, Port},
-           {num_acceptors, NumAcceptors},
-           {max_connections, MaxConnections}],
+          #{socket_opts => [{ip, ListenIp},
+                            {port, Port}],
+            num_acceptors => NumAcceptors,
+            max_connections => MaxConnections},
           mtp_handler, [Name, Secret, Tag]),
     Url = io_lib:format(
             "https://t.me/proxy?server=~s&port=~w&secret=~s",

@@ -1,10 +1,10 @@
 {"1.1.0",
 [{<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"lager">>,{pkg,<<"lager">>,<<"3.6.3">>},0},
- {<<"ranch">>,{pkg,<<"ranch">>,<<"1.5.0">>},0}]}.
+ {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.0">>},0}]}.
 [
 {pkg_hash,[
  {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
  {<<"lager">>, <<"FE78951D174616273F87F0DBC3374D1430B1952E5EFC4E1C995592D30A207294">>},
- {<<"ranch">>, <<"F04166F456790FEE2AC1AA05A02745CC75783C2BFB26D39FAF6AEFC9A3D3A58A">>}]}
+ {<<"ranch">>, <<"9583F47160CA62AF7F8D5DB11454068EAA32B56EEADF984D4F46E61A076DF5F2">>}]}
 ].
