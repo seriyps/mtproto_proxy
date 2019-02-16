@@ -32,6 +32,12 @@
 -record(state, {tab :: ets:tid(),
                 timer :: gen_timeout:tout()}).
 
+-ifndef(OTP_RELEASE).                           % pre-OTP21
+-define(WITH_STACKTRACE(T, R, S), T:R -> S = erlang:get_stacktrace(), ).
+-else.
+-define(WITH_STACKTRACE(T, R, S), T:R:S ->).
+-endif.
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -44,9 +50,10 @@ get_downstream_safe(DcId) ->
     case get_downstream(DcId) of
         {ok, Addr} -> Addr;
         not_found ->
-            [{_, {Min, Max}}] = ets:lookup(?TAB, id_range),
+            [{_, L}] = ets:lookup(?TAB, id_range),
+            NewDcId = random_choice(L),
             %% Get random DC; it might return 0 and recurse aggain
-            get_downstream_safe(crypto:rand_uniform(Min, Max + 1))
+            get_downstream_safe(NewDcId)
     end.
 
 get_downstream(DcId) ->
@@ -56,9 +63,7 @@ get_downstream(DcId) ->
         [{_, Ip, Port}] ->
             {ok, {Ip, Port}};
         L ->
-            Size = length(L),
-            Idx = crypto:rand_uniform(1, Size + 1),
-            {_, Ip, Port} = lists:nth(Idx, L),
+            {_, Ip, Port} = random_choice(L),
             {ok, {Ip, Port}}
     end.
 
@@ -117,10 +122,10 @@ update(#state{tab = Tab}, force) ->
     update_ip();
 update(State, _) ->
     try update(State, force)
-    catch Class:Reason ->
+    catch ?WITH_STACKTRACE(Class, Reason, Stack)
             lager:error(
               "Err updating proxy settings: ~s",
-              [lager:pr_stacktrace(erlang:get_stacktrace(), {Class, Reason})])
+              [lager:pr_stacktrace(Stack, {Class, Reason})])
     end.
 
 update_key(Tab) ->
@@ -154,9 +159,7 @@ parse_downstream(Line) ->
      Port}.
 
 get_range(Downstreams) ->
-    IDsList = [Id || {Id, _, _} <- Downstreams],
-    {lists:min(IDsList),
-     lists:max(IDsList)}.
+    [Id || {Id, _, _} <- Downstreams].
 
 update_downstreams(Downstreams, Tab) ->
     [true = ets:insert(Tab, {{id, Id}, Ip, Port})
@@ -178,9 +181,9 @@ update_ip([Url | Fallbacks]) ->
         IpStr= string:trim(Body),
         {ok, _} = inet:parse_ipv4strict_address(IpStr), %assert
         application:set_env(?APP, external_ip, IpStr)
-    catch Class:Reason ->
+    catch ?WITH_STACKTRACE(Class, Reason, Stack)
             lager:error("Failed to update IP with ~s service: ~s",
-                        [Url, lager:pr_stacktrace(erlang:get_stacktrace(), {Class, Reason})]),
+                        [Url, lager:pr_stacktrace(Stack, {Class, Reason})]),
             update_ip(Fallbacks)
     end;
 update_ip([]) ->
@@ -194,6 +197,9 @@ http_get(Url) ->
         httpc:request(get, {Url, Headers}, [{timeout, 3000}], []),
     {ok, Body}.
 
+random_choice(L) ->
+    Idx = rand:uniform(length(L)),
+    lists:nth(Idx, L).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
