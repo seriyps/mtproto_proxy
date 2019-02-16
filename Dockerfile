@@ -1,6 +1,6 @@
 # Based on https://github.com/erlang/docker-erlang-example
 
-FROM erlang:alpine
+FROM erlang:alpine as builder
 
 RUN apk add --no-cache git
 
@@ -12,8 +12,8 @@ COPY rebar3 rebar3
 COPY rebar.config rebar.config
 COPY rebar.lock rebar.lock
 COPY config config
-RUN [ ! -f config/prod-sys.config ] && cp config/sys.config.example config/prod-sys.config
-RUN [ ! -f config/prod-vm.args ] && cp config/vm.args.example config/prod-vm.args
+RUN if [ ! -f config/prod-sys.config ]; then cp config/sys.config.example config/prod-sys.config; fi
+RUN if [ ! -f config/prod-vm.args ]; then cp config/vm.args.example config/prod-vm.args; fi
 
 RUN rebar3 as prod release
 
@@ -24,7 +24,7 @@ RUN apk add --no-cache openssl && \
 
 RUN mkdir -p /opt
 RUN mkdir -p /var/log/mtproto-proxy
-COPY --from=0 /build/mtproto_proxy/_build/prod/rel/mtp_proxy /opt/mtp_proxy
+COPY --from=builder /build/mtproto_proxy/_build/prod/rel/mtp_proxy /opt/mtp_proxy
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["/opt/mtp_proxy/bin/mtp_proxy", "foreground"]
