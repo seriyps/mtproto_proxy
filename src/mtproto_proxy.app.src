@@ -1,6 +1,6 @@
 {application, mtproto_proxy,
  [{description, "An OTP application"},
-  {vsn, "0.3.0"},
+  {vsn, "0.4.0"},
   {registered, []},
   {mod, { mtproto_proxy_app, []}},
   {applications,
