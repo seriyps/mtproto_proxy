@@ -2,6 +2,7 @@ DESTDIR:=
 prefix:=$(DESTDIR)/opt
 REBAR3:=./rebar3
 SERVICE:=$(DESTDIR)/etc/systemd/system/mtproto-proxy.service
+EPMD_SERVICE:=$(DESTDIR)/etc/systemd/system/epmd.service
 LOGDIR:=$(DESTDIR)/var/log/mtproto-proxy
 USER:=mtproto-proxy
 
@@ -27,10 +28,15 @@ $(LOGDIR):
 
 
 install: user $(LOGDIR)
+	mkdir -p $(prefix)
 	cp -n -r _build/prod/rel/mtp_proxy $(prefix)/mtp_proxy/
 	mkdir -p $(prefix)/mtp_proxy/log/
 	chmod 777 $(prefix)/mtp_proxy/log/
 	install -D config/mtproto-proxy.service $(SERVICE)
+# If there is no "epmd" service, install one
+	if [ -z "`systemctl show -p FragmentPath --value epmd`" ]; then \
+	    install -D config/epmd.service $(EPMD_SERVICE); \
+	fi
 	systemctl daemon-reload
 
 uninstall:
