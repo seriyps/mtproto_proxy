@@ -10,6 +10,13 @@ usage() {
     echo "${THIS}"
     echo "To start in single-port mode configured from command-line:"
     echo "${THIS} -p <port> -s <secret> -t <ad tag>"
+    echo "Parameters:"
+    echo "-p <port>: port to listen on. 1-65535"
+    echo "-s <secret>: proxy secret. 32 hex characters 0-9 a-f"
+    echo "-t <ad tag>: promo tag, that you get from @MTProxybot. 32 hex characters"
+    echo "port secret and tag can also be configured via environment variables:"
+    echo "MTP_PORT, MTP_SECRET, MTP_TAG"
+    echo "If both command line and environment are set, command line have higher priority"
 }
 
 error() {
@@ -18,36 +25,44 @@ error() {
     exit 1
 }
 
-NUM_OPTS=0
-PORT=""
-SECRET=""
-TAG=""
+# check environment variables
+PORT=${MTP_PORT:-""}
+SECRET=${MTP_SECRET:-""}
+TAG=${MTP_TAG:-""}
 
+# check command line options
 while getopts "p:s:t:h" o; do
     case "${o}" in
         p)
             PORT=${OPTARG}
-            test ${PORT} -gt 0 -a ${PORT} -lt 65535 || error "Invalid port value: ${PORT}"
             ;;
         s)
             SECRET=${OPTARG}
-            [ -n "`echo $SECRET | grep -x '[[:xdigit:]]\{32\}'`" ] || error "Invalid secret. Should be 32 chars of 0-9 a-f"
             ;;
         t)
             TAG=${OPTARG}
-            [ -n "`echo $TAG | grep -x '[[:xdigit:]]\{32\}'`" ] || error "Invalid tag. Should be 32 chars of 0-9 a-f"
             ;;
         h)
             usage
             exit 0
     esac
-    NUM_OPTS=$((NUM_OPTS + 1))
 done
 
-if [ $NUM_OPTS -eq 0 ]; then
-    exec $CMD
-elif [ $NUM_OPTS -eq 3 ]; then
+# if at least one option is set...
+if [ -n "${PORT}" -o -n "${SECRET}" -o -n "${TAG}" ]; then
+    # If at least one of them not set...
+    [ -z "${PORT}" -o -z "${SECRET}" -o -z "${SECRET}" ] && \
+        error "Not enough options: -p '${PORT}' -s '${SECRET}' -t '${TAG}'"
+
+    # validate format
+    [ ${PORT} -gt 0 -a ${PORT} -lt 65535 ] || \
+        error "Invalid port value: ${PORT}"
+    [ -n "`echo $SECRET | grep -x '[[:xdigit:]]\{32\}'`" ] || \
+        error "Invalid secret. Should be 32 chars of 0-9 a-f"
+    [ -n "`echo $TAG | grep -x '[[:xdigit:]]\{32\}'`" ] || \
+        error "Invalid tag. Should be 32 chars of 0-9 a-f"
+
     exec $CMD -mtproto_proxy ports "[#{name => mtproto_proxy, port => $PORT, secret => <<\"$SECRET\">>, tag => <<\"$TAG\">>}]"
 else
-    error "Not enough options: -p '${PORT}' -s '${SECRET}' -t '${TAG}'"
+    exec $CMD
 fi
