@@ -32,11 +32,17 @@ docker run -d --network=host seriyps/mtproto-proxy
 docker run -d --network=host seriyps/mtproto-proxy -p 443 -s d0d6e111bada5511fcce9584deadbeef -t dcbe8f1493fa4cd9ab300891c0b5b326
 ```
 
+or via environmet variables
+
+```bash
+docker run -d --network=host -e MTP_PORT=443 -e MTP_SECRET=d0d6e111bada5511fcce9584deadbeef -e MTP_TAG=dcbe8f1493fa4cd9ab300891c0b5b326 seriyps/mtproto-proxy
+```
+
 Where
 
-* `-p 443` proxy port
-* `-s d0d6e111bada5511fcce9584deadbeef` proxy secret (don't append `dd`! it should be 32 chars long!)
-* `-t dcbe8f1493fa4cd9ab300891c0b5b326` ad-tag that you get from [@MTProxybot](https://t.me/MTProxybot)
+* `-p 443` / `MTP_PORT` proxy port
+* `-s d0d6e111bada5511fcce9584deadbeef` / `MTP_SECRET` proxy secret (don't append `dd`! it should be 32 chars long!)
+* `-t dcbe8f1493fa4cd9ab300891c0b5b326` / `MTP_TAG` ad-tag that you get from [@MTProxybot](https://t.me/MTProxybot)
 
 ### To run with custom config-file
 
