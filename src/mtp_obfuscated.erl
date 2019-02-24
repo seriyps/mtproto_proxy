@@ -7,9 +7,10 @@
 
 -module(mtp_obfuscated).
 -behaviour(mtp_layer).
--export([create/0,
-         create/1,
+-export([client_create/3,
+         client_create/4,
          from_header/2,
+         from_header/3,
          new/4,
          encrypt/2,
          decrypt/2,
@@ -27,51 +28,100 @@
 
 -define(APP, mtproto_proxy).
 
+-define(KEY_LEN, 32).
+-define(IV_LEN, 16).
+
 -opaque codec() :: #st{}.
 
-%% @doc Creates new obfuscated stream (usual format)
--spec create() -> {ok, Header :: binary(), codec()}.
-create() ->
-    create(crypto:strong_rand_bytes(60)).
 
--spec create(binary()) -> {ok, Header :: binary(), codec()}.
-create(<<Left:56/binary, Right:4/binary>>) ->
-    DownHeader = <<Left/binary,
-                   16#ef, 16#ef, 16#ef, 16#ef,
-                   Right/binary>>,
-    new2(DownHeader).
+client_create(Secret, Protocol, DcId) ->
+    client_create(crypto:strong_rand_bytes(58),
+                  Secret, Protocol, DcId).
 
-new2(<<Left:56/binary, _/binary>> = DownHeader) ->
-    {EncKey, EncIV} = init_down_encrypt(DownHeader),
-    {DecKey, DecIV} = init_down_decrypt(DownHeader),
-    St = new(EncKey, EncIV, DecKey, DecIV),
-    {<<_:56/binary, Rep:8/binary, _/binary>>, St1} = encrypt(DownHeader, St),
-    {ok,
-     <<Left/binary, Rep/binary>>,
-     St1}.
+-spec client_create(binary(), binary(), mtp_layer:codec(), integer()) ->
+                           {Packet,
+                            {EncKey, EncIv},
+                            {DecKey, DecIv},
+                            CliCodec} when
+      Packet :: binary(),
+      EncKey :: binary(),
+      EncIv :: binary(),
+      DecKey :: binary(),
+      DecIv :: binary(),
+      CliCodec :: codec().
+client_create(Seed, Secret, Protocol, DcId) when byte_size(Seed) == 58,
+                                          byte_size(Secret) == 16,
+                                          DcId > -10,
+                                          DcId < 10,
+                                          is_atom(Protocol) ->
+    <<L:56/binary, R:2/binary>> = Seed,
+    ProtocolBin = encode_protocol(Protocol),
+    DcIdBin = encode_dc_id(DcId),
+    Raw = <<L:56/binary, ProtocolBin:4/binary, DcIdBin:2/binary, R:2/binary>>,
 
-init_down_decrypt(<<_:8/binary, ToRev:48/binary, _/binary>>) ->
-    Reversed = bin_rev(ToRev),
-    <<KeyRev:32/binary, RevIV:16/binary>> = Reversed,
-    {KeyRev, RevIV}.
+    %% init_up_encrypt/2
+    <<_:8/binary, ToRev:(?KEY_LEN + ?IV_LEN)/binary, _/binary>> = Raw,
+    <<DecKeySeed:?KEY_LEN/binary, DecIv:?IV_LEN/binary>> = bin_rev(ToRev),
+    DecKey = crypto:hash('sha256', <<DecKeySeed/binary, Secret/binary>>),
 
-init_down_encrypt(<<_:8/binary, Key:32/binary, IV:16/binary, _/binary>>) ->
-    {Key, IV}.
+    %% init_up_decrypt/2
+    <<_:8/binary, EncKeySeed:?KEY_LEN/binary, EncIv:?IV_LEN/binary, _/binary>> = Raw,
+    EncKey = crypto:hash('sha256', <<EncKeySeed/binary, Secret/binary>>),
 
+    Codec = new(EncKey, EncIv, DecKey, DecIv),
+    {<<_:56/binary, Encrypted:8/binary>>, Codec1} = encrypt(Raw, Codec),
+    <<RawL:56/binary, _:8/binary>> = Raw,
+    Packet = <<RawL:56/binary, Encrypted:8/binary>>,
+    {Packet,
+     {EncKey, EncIv},
+     {DecKey, DecIv},
+     Codec1}.
+
+
+%% 4byte
+encode_protocol(mtp_abridged) ->
+    <<16#ef, 16#ef, 16#ef, 16#ef>>;
+encode_protocol(mtp_intermediate) ->
+    <<16#ee, 16#ee, 16#ee, 16#ee>>;
+encode_protocol(mtp_secure) ->
+    <<16#dd, 16#dd, 16#dd, 16#dd>>.
+
+%% 4byte
+encode_dc_id(DcId) ->
+    <<DcId:16/signed-little-integer>>.
 
 %% @doc creates new obfuscated stream (MTProto proxy format)
+from_header(Header, Secret) ->
+    {ok, AllowedProtocols} = application:get_env(?APP, allowed_protocols),
+    from_header(Header, Secret, AllowedProtocols).
+
 -spec from_header(binary(), binary()) -> {ok, integer(), mtp_layer:codec(), codec()}
                                              | {error, unknown_protocol | disabled_protocol}.
-from_header(Header, Secret) when byte_size(Header) == 64  ->
+from_header(Header, Secret, AllowedProtocols) when byte_size(Header) == 64  ->
+    %% 1) Encryption key
+    %%     [--- _: 8b ----|---------- b: 48b -------------|-- _: 8b --] = header: 64b
+    %% b_r: 48b = reverse([---------- b ------------------])
+    %%                    [-- key_seed: 32b --|- iv: 16b -] = b_r
+    %% key: 32b = sha256( [-- key_seed: 32b --|-- secret: 32b --] )
+    %% iv: 16b = iv
+    %%
+    %% 2) Decryption key
+    %%      [--- _: 8b ---|-- key_seed: 32b --|- iv: 16b -|-- _: 8b --] = header
+    %% key: 32b = sha256( [-- key_seed: 32b --|-- secret: 32b --] )
+    %% ib: 16b = ib
+    %%
+    %% 3) Protocol and datacenter
+    %% decrypted_header: 64b = decrypt(header)
+    %%      [-------------- _a: 56b ----|-------- b: 6b ---------|- _: 2b -] = decrypted_header
+    %%                                  [- proto: 4b -|- dc: 2b -]
     {EncKey, EncIV} = init_up_encrypt(Header, Secret),
     {DecKey, DecIV} = init_up_decrypt(Header, Secret),
     St = new(EncKey, EncIV, DecKey, DecIV),
-    {<<_:56/binary, Bin1:8/binary, _/binary>>, St1} = decrypt(Header, St),
+    {<<_:56/binary, Bin1:6/binary, _:2/binary>>, St1} = decrypt(Header, St),
     case get_protocol(Bin1) of
         {error, unknown_protocol} = Err ->
             Err;
         Protocol ->
-            {ok, AllowedProtocols} = application:get_env(?APP, allowed_protocols),
             case lists:member(Protocol, AllowedProtocols) of
                 true ->
                     DcId = get_dc(Bin1),
@@ -82,28 +132,28 @@ from_header(Header, Secret) when byte_size(Header) == 64  ->
     end.
 
 init_up_encrypt(Bin, Secret) ->
-    <<_:8/binary, ToRev:48/binary, _/binary>> = Bin,
+    <<_:8/binary, ToRev:(?KEY_LEN + ?IV_LEN)/binary, _/binary>> = Bin,
     Rev = bin_rev(ToRev),
-    <<KeyRev:32/binary, RevIV:16/binary, _/binary>> = Rev,
+    <<KeySeed:?KEY_LEN/binary, IV:?IV_LEN/binary>> = Rev,
     %% <<_:32/binary, RevIV:16/binary, _/binary>> = Bin,
-    KeyRevHash = crypto:hash('sha256', <<KeyRev/binary, Secret/binary>>),
-    {KeyRevHash, RevIV}.
+    Key = crypto:hash('sha256', <<KeySeed/binary, Secret/binary>>),
+    {Key, IV}.
 
 init_up_decrypt(Bin, Secret) ->
-    <<_:8/binary, Key:32/binary, IV:16/binary, _/binary>> = Bin,
-    KeyHash = crypto:hash('sha256', <<Key/binary, Secret/binary>>),
-    {KeyHash, IV}.
+    <<_:8/binary, KeySeed:?KEY_LEN/binary, IV:?IV_LEN/binary, _/binary>> = Bin,
+    Key = crypto:hash('sha256', <<KeySeed/binary, Secret/binary>>),
+    {Key, IV}.
 
-get_protocol(<<16#ef, 16#ef, 16#ef, 16#ef, _/binary>>) ->
+get_protocol(<<16#ef, 16#ef, 16#ef, 16#ef, _:2/binary>>) ->
     mtp_abridged;
-get_protocol(<<16#ee, 16#ee, 16#ee, 16#ee, _/binary>>) ->
+get_protocol(<<16#ee, 16#ee, 16#ee, 16#ee, _:2/binary>>) ->
     mtp_intermediate;
-get_protocol(<<16#dd, 16#dd, 16#dd, 16#dd, _/binary>>) ->
+get_protocol(<<16#dd, 16#dd, 16#dd, 16#dd, _:2/binary>>) ->
     mtp_secure;
 get_protocol(_) ->
     {error, unknown_protocol}.
 
-get_dc(<<_:4/binary, DcId:16/signed-little-integer, _/binary>>) ->
+get_dc(<<_:4/binary, DcId:16/signed-little-integer>>) ->
     DcId.
 
 
@@ -137,3 +187,16 @@ encode_packet(Msg, S) ->
 bin_rev(Bin) ->
     %% binary:encode_unsigned(binary:decode_unsigned(Bin, little)).
     list_to_binary(lists:reverse(binary_to_list(Bin))).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+client_server_test() ->
+    Secret = crypto:strong_rand_bytes(16),
+    DcId = 4,
+    Protocol = mtp_secure,
+    {Packet, _, _, _CliCodec} = client_create(Secret, Protocol, DcId),
+    Srv = from_header(Packet, Secret, [Protocol]),
+    ?assertMatch({ok, DcId, Protocol, _}, Srv).
+
+-endif.
