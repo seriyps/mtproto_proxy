@@ -168,11 +168,13 @@ update(State, _) ->
     end.
 
 update_key(Tab) ->
-    {ok, Body} = http_get(?SECRET_URL),
+    Url = application:get_env(mtproto_proxy, proxy_secret_url, ?SECRET_URL),
+    {ok, Body} = http_get(Url),
     true = ets:insert(Tab, {key, list_to_binary(Body)}).
 
 update_config(Tab) ->
-    {ok, Body} = http_get(?CONFIG_URL),
+    Url = application:get_env(mtproto_proxy, proxy_config_url, ?CONFIG_URL),
+    {ok, Body} = http_get(Url),
     Downstreams = parse_config(Body),
     update_downstreams(Downstreams, Tab),
     update_ids(Downstreams, Tab).

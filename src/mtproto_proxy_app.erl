@@ -15,7 +15,7 @@
 %% API
 %%====================================================================
 start(_StartType, _StartArgs) ->
-    Res = mtproto_proxy_sup:start_link(),
+    Res = {ok, _} = mtproto_proxy_sup:start_link(),
     io:format("+++++++++++++++++++++++++++++++++++++++~n"
               "Erlang MTProto proxy by @seriyps https://github.com/seriyps/mtproto_proxy~n"
               "Sponsored by and powers @socksy_bot~n"),
