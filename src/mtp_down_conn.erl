@@ -17,6 +17,9 @@
          shutdown/1,
          send/2,
          ack/3]).
+-ifdef(TEST).
+-export([get_middle_key/1]).
+-endif.
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -388,20 +391,12 @@ tcp_connect(Host, Port) ->
             Err
     end.
 
--define(RPC_NONCE, <<170,135,203,122>>).
--define(RPC_HANDSHAKE, <<245,238,130,118>>).
--define(RPC_FLAGS, <<0, 0, 0, 0>>).
-
 down_handshake1(S) ->
-    RpcNonce = ?RPC_NONCE,
     <<KeySelector:4/binary, _/binary>> = Key = mtp_config:get_secret(),
     CryptoTs = os:system_time(seconds),
     Nonce = crypto:strong_rand_bytes(16),
-    Msg = <<RpcNonce/binary,
-            KeySelector/binary,
-            1:32/little,                        %AES
-            CryptoTs:32/little,
-            Nonce/binary>>,
+    Schema = 1,                                 %AES
+    Msg = mtp_rpc:encode_nonce({nonce, KeySelector, Schema, CryptoTs, Nonce}),
     S1 = S#state{stage = handshake_1,
                  %% Use fake encryption codec
                  codec = mtp_codec:new(mtp_noop_codec, mtp_noop_codec:new(),
@@ -409,11 +404,10 @@ down_handshake1(S) ->
                  stage_state = {KeySelector, Nonce, CryptoTs, Key}},
     down_send(Msg, S1).
 
-down_handshake2(<<Type:4/binary, KeySelector:4/binary, Schema:32/little, _CryptoTs:4/binary,
-                  SrvNonce:16/binary>>, #state{stage_state = {MyKeySelector, CliNonce, MyTs, Key},
-                                               codec = Codec1,
-                                               sock = Sock} = S) ->
-    (Type == ?RPC_NONCE) orelse error({wrong_rpc_type, Type}),
+down_handshake2(Pkt, #state{stage_state = {MyKeySelector, CliNonce, MyTs, Key},
+                            codec = Codec1,
+                            sock = Sock} = S) ->
+    {nonce, KeySelector, Schema, _CryptoTs, SrvNonce} = mtp_rpc:decode_nonce(Pkt),
     (Schema == 1) orelse error({wrong_schema, Schema}),
     (KeySelector == MyKeySelector) orelse error({wrong_key_selector, KeySelector}),
     {ok, {DownIp, DownPort}} = inet:peername(Sock),
@@ -430,10 +424,7 @@ down_handshake2(<<Type:4/binary, KeySelector:4/binary, Schema:32/little, _Crypto
     Codec = mtp_codec:new(mtp_aes_cbc, CryptoState,
                           PacketMod, PacketState),
     SenderPID = PeerPID = <<"IPIPPRPDTIME">>,
-    Handshake = [?RPC_HANDSHAKE,
-                 ?RPC_FLAGS,
-                 SenderPID,
-                 PeerPID],
+    Handshake = mtp_rpc:encode_handshake({handshake, SenderPID, PeerPID}),
     down_send(Handshake,
               S#state{codec = Codec,
                       stage = handshake_2,
@@ -465,10 +456,9 @@ get_middle_key(#{srv_n := Nonce, clt_n := MyNonce, clt_ts := MyTs, srv_ip := Srv
     {Key, IV}.
 
 
-down_handshake3(<<Type:4/binary, _Flags:4/binary, _SenderPid:12/binary, PeerPid:12/binary>>,
-                #state{stage_state = PrevSenderPid, pool = Pool,
-                       netloc = {Addr, Port}} = S) ->
-    (Type == ?RPC_HANDSHAKE) orelse error({wrong_rpc_type, Type}),
+down_handshake3(Pkt, #state{stage_state = PrevSenderPid, pool = Pool,
+                            netloc = {Addr, Port}} = S) ->
+    {handshake, _SenderPid, PeerPid} = mtp_rpc:decode_handshake(Pkt),
     (PeerPid == PrevSenderPid) orelse error({wrong_sender_pid, PeerPid}),
     ok = mtp_dc_pool:ack_connected(Pool, self()),
     lager:info("~s:~w: handshake complete", [inet:ntoa(Addr), Port]),

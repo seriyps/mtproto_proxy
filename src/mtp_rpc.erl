@@ -8,7 +8,15 @@
 -module(mtp_rpc).
 
 -export([decode_packet/1,
+         decode_nonce/1,
+         decode_handshake/1,
+         encode_nonce/1,
+         encode_handshake/1,
          encode_packet/2]).
+%% For tests
+-export([srv_decode_packet/1,
+         srv_encode_packet/1]).
+%% Helpers
 -export([inet_pton/1,
          encode_ip_port/2]).
 -export_type([codec/0]).
@@ -29,6 +37,11 @@
 -define(RPC_SIMPLE_ACK, 155,64,172,59).         %0x3bac409b
 -define(TL_PROXY_TAG, 174,38,30,219).
 
+-define(RPC_NONCE, 170,135,203,122).
+-define(RPC_HANDSHAKE, 245,238,130,118).
+-define(RPC_FLAGS, 0, 0, 0, 0).
+
+
 -define(FLAG_NOT_ENCRYPTED , 16#2).
 -define(FLAG_HAS_AD_TAG    , 16#8).
 -define(FLAG_MAGIC         , 16#1000).
@@ -45,15 +58,31 @@
                 | {close_ext, conn_id()}
                 | {simple_ack, conn_id(), binary()}.
 
-%% new(ClientIp, ClientPort, ProxyIp, ProxyPort, ProxyTag) ->
-%%     new(ClientIp, ClientPort, ProxyIp, ProxyPort, ProxyTag,
-%%         erlang:unique_integer()).
+decode_nonce(<<?RPC_NONCE,
+               KeySelector:4/binary,
+               Schema:32/little,
+               CryptoTs:32/little,
+               CliNonce:16/binary>>) ->
+    {nonce, KeySelector, Schema, CryptoTs, CliNonce}.
 
-%% new(ClientIp, ClientPort, ProxyIp, ProxyPort, ProxyTag, ConnId) ->
-%%     #rpc_st{client_addr = iolist_to_binary(encode_ip_port(ClientIp, ClientPort)),
-%%             proxy_addr = iolist_to_binary(encode_ip_port(ProxyIp, ProxyPort)),
-%%             proxy_tag = ProxyTag,
-%%             conn_id = ConnId}.
+decode_handshake(<<?RPC_HANDSHAKE,
+                       ?RPC_FLAGS,
+                       SenderPID:12/binary,
+                       PeerPID:12/binary>>) ->
+    {handshake, SenderPID, PeerPID}.
+
+encode_nonce({nonce, KeySelector, Schema, CryptoTs, SrvNonce}) ->
+    <<?RPC_NONCE,
+      KeySelector:4/binary,
+      Schema:32/little,
+      CryptoTs:32/little,
+      SrvNonce:16/binary>>.
+
+encode_handshake({handshake, SenderPID, PeerPID}) ->
+    <<?RPC_HANDSHAKE,
+      0, 0, 0, 0,                    %Some flags
+      SenderPID:12/binary,
+      PeerPID:12/binary>>.
 
 %% It expects that packet segmentation was done on previous layer
 %% See mtproto/mtproto-proxy.c:process_client_packet
@@ -99,6 +128,29 @@ encode_packet({data, Msg}, {{ConnId, ClientAddr, ProxyTag}, ProxyAddr}) ->
 encode_packet(remote_closed, ConnId) ->
     <<?RPC_CLOSE_CONN, ConnId:64/little-signed>>.
 
+%%
+%% Middle-proxy side encoding and decodong (FOR TESTS ONLY!)
+%%
+
+%% opposite of encode_packet
+srv_decode_packet(<<?RPC_PROXY_REQ, _Flags:32/little, ConnId:64/little-signed,
+                    _ClientAddrBin:20/binary, _ProxyAddrBin:20/binary,
+                    24:32/little, ?TL_PROXY_TAG, 16, _ProxyTag:16/binary, 0, 0, 0,
+                    Data/binary>>) ->
+    {data, ConnId, Data};
+srv_decode_packet(<<?RPC_CLOSE_CONN, ConId:64/little-signed>>) ->
+    {remote_closed, ConId}.
+
+%% Opposite of decode_packet
+srv_encode_packet({proxy_ans, ConnId, Data}) ->
+    <<?RPC_PROXY_ANS,
+      0, 0, 0, 0,                               %some flags
+      ConnId:64/signed-little,
+      Data/binary>>;
+srv_encode_packet({close_ext, ConnId}) ->
+    <<?RPC_CLOSE_EXT, ConnId:64/little-signed>>.
+
+%% IP and port as 10 + 2 + 4 + 4 = 20b
 -spec encode_ip_port(inet:ip_address(), inet:port_number()) -> iodata().
 encode_ip_port(IPv4, Port) when tuple_size(IPv4) == 4 ->
     IpBin = inet_pton(IPv4),
