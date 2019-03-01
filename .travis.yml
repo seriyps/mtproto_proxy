@@ -9,3 +9,4 @@ script:
   - ./rebar3 xref
   - ./rebar3 eunit
   - ./rebar3 dialyzer
+  - ./rebar3 proper
