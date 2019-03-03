@@ -51,7 +51,7 @@ done
 # if at least one option is set...
 if [ -n "${PORT}" -o -n "${SECRET}" -o -n "${TAG}" ]; then
     # If at least one of them not set...
-    [ -z "${PORT}" -o -z "${SECRET}" -o -z "${SECRET}" ] && \
+    [ -z "${PORT}" -o -z "${SECRET}" -o -z "${TAG}" ] && \
         error "Not enough options: -p '${PORT}' -s '${SECRET}' -t '${TAG}'"
 
     # validate format
