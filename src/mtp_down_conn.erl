@@ -36,6 +36,12 @@
 -define(MAX_NON_ACK_COUNT, 300).
 -define(MAX_NON_ACK_BYTES, 1024 * 1024 * 6).    % 6MB
 
+-ifndef(OTP_RELEASE).                           % pre-OTP21
+-define(WITH_STACKTRACE(T, R, S), T:R -> S = erlang:get_stacktrace(), ).
+-else.
+-define(WITH_STACKTRACE(T, R, S), T:R:S ->).
+-endif.
+
 -type handle() :: pid().
 -type upstream_opts() :: #{addr := mtp_config:netloc(), % IP/Port of TG client
                            ad_tag => binary()}.
@@ -121,9 +127,9 @@ handle_info(do_connect, #state{dc_id = DcId} = State) ->
     try
         {ok, St1} = connect(DcId, State),
         {noreply, St1}
-    catch T:R ->
+    catch ?WITH_STACKTRACE(Class, Reason, Stack)
             lager:error("Down connect error: ~s",
-                        [lager:pr_stacktrace(erlang:get_stacktrace(), {T, R})]),
+                        [lager:pr_stacktrace(Stack, {Class, Reason})]),
             erlang:send_after(300, self(), do_connect),
             {noreply, State}
     end.
