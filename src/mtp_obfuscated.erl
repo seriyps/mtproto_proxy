@@ -49,6 +49,8 @@ client_create(Secret, Protocol, DcId) ->
       DecKey :: binary(),
       DecIv :: binary(),
       CliCodec :: codec().
+client_create(Seed, HexSecret, Protocol, DcId) when byte_size(HexSecret) == 32 ->
+    client_create(Seed, mtp_handler:unhex(HexSecret), Protocol, DcId);
 client_create(Seed, Secret, Protocol, DcId) when byte_size(Seed) == 58,
                                           byte_size(Secret) == 16,
                                           DcId > -10,
