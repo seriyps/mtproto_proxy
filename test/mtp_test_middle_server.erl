@@ -1,19 +1,12 @@
-%% Fake telegram server
+%% Fake telegram "middle-proxy" server
 -module(mtp_test_middle_server).
 -behaviour(ranch_protocol).
 -behaviour(gen_statem).
 
--export([start_dc/0,
-         start_dc/3,
-         stop_dc/1,
-         start/2,
-         stop/1,
-         start_config_server/5,
-         stop_config_server/1]).
--export([dc_list_to_config/1]).
+-export([start/2,
+         stop/1]).
 -export([start_link/4,
          ranch_init/1]).
--export([do/1]).
 -export([init/1,
          callback_mode/0,
          %% handle_call/3,
@@ -26,7 +19,6 @@
          wait_handshake/3,
          on_tunnel/3]).
 
--include_lib("inets/include/httpd.hrl").
 -record(hs_state,
         {sock,
          transport,
@@ -47,101 +39,7 @@
 -define(RPC_HANDSHAKE, 245,238,130,118).
 -define(RPC_FLAGS, 0, 0, 0, 0).
 
--define(SECRET_PATH, "/getProxySecret").
--define(CONFIG_PATH, "/getProxyConfig").
-
 %% -type state_name() :: wait_nonce | wait_handshake | on_tunnel.
-
-start_dc() ->
-    Secret = crypto:strong_rand_bytes(128),
-    DcConf = [{1, {127, 0, 0, 1}, 8888}],
-    {ok, _Cfg} = start_dc(Secret, DcConf, #{}).
-
-start_dc(Secret, DcConf, Acc) ->
-    Cfg = mtp_test_middle_server:dc_list_to_config(DcConf),
-    {ok, Acc1} = start_config_server({127, 0, 0, 1}, 3333, Secret, Cfg, Acc),
-    Ids =
-        [begin
-             Id = {?MODULE, DcId},
-             {ok, _Pid} = start(Id, #{port => Port, ip => Ip, secret => Secret}),
-             Id
-         end || {DcId, Ip, Port} <- DcConf],
-    {ok, Acc1#{srv_ids => Ids}}.
-
-stop_dc(#{srv_ids := Ids} = Acc) ->
-    {ok, Acc1} = stop_config_server(Acc),
-    ok = lists:foreach(fun stop/1, Ids),
-    {ok, maps:without([srv_ids], Acc1)}.
-
-%%
-%% Inets HTTPD to use as a mock for https://core.telegram.org
-%%
-
-%% Api
-start_config_server(Ip, Port, Secret, DcConfig, Acc) ->
-    application:load(mtproto_proxy),
-    Netloc = lists:flatten(io_lib:format("http://~s:~w", [inet:ntoa(Ip), Port])),
-    Env = [{proxy_secret_url,
-            Netloc ++ ?SECRET_PATH},
-           {proxy_config_url,
-            Netloc ++ ?CONFIG_PATH},
-           {external_ip, "127.0.0.1"},
-           {ip_lookup_services, undefined}],
-    OldEnv =
-        [begin
-             %% OldV is undefined | {ok, V}
-             OldV = application:get_env(mtproto_proxy, K),
-             case V of
-                 undefined -> application:unset_env(mtproto_proxy, K);
-                 _ ->
-                     application:set_env(mtproto_proxy, K, V)
-             end,
-             {K, OldV}
-         end || {K, V} <- Env],
-    RootDir = code:lib_dir(mtproto_proxy, test),
-    {ok, Pid} =
-        inets:start(httpd,
-                    [{port, Port},
-                     {server_name, "mtp_config"},
-                     {server_root, "/tmp"},
-                     {document_root, RootDir},
-
-                     {bind_address, Ip},
-                     {modules, [?MODULE]},
-                     {mtp_secret, Secret},
-                     {mtp_dc_conf, DcConfig}]),
-    {ok, Acc#{env => OldEnv,
-              httpd_pid => Pid}}.
-
-stop_config_server(#{env := Env, httpd_pid := Pid} = Acc) ->
-    [case V of
-         undefined ->
-             application:unset_env(mtproto_proxy, K);
-         {ok, Val} ->
-             application:set_env(mtproto_proxy, K, Val)
-     end || {K, V} <- Env],
-    inets:stop(httpd, Pid),
-    {ok, maps:without([env, httpd_pid], Acc)}.
-
-dc_list_to_config(List) ->
-    <<
-      <<(list_to_binary(
-           io_lib:format("proxy_for ~w ~s:~w;~n", [DcId, inet:ntoa(Ip), Port])
-          ))/binary>>
-      || {DcId, Ip, Port} <- List
-      >>.
-
-%% Inets callback
-do(#mod{request_uri = ?CONFIG_PATH, config_db = Db}) ->
-    [{_, DcConf}] = ets:lookup(Db, mtp_dc_conf),
-    {break, [{response, {200, binary_to_list(DcConf)}}]};
-do(#mod{request_uri = ?SECRET_PATH, config_db = Db}) ->
-    [{_, Secret}] = ets:lookup(Db, mtp_secret),
-    {break, [{response, {200, binary_to_list(Secret)}}]}.
-
-%%
-%% Mtproto telegram server
-%%
 
 %% Api
 start(Id, Opts) ->

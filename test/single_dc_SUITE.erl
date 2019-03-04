@@ -100,7 +100,7 @@ setup_single(Name, Offset, Cfg) ->
                    tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}],
     application:load(mtproto_proxy),
     Cfg1 = set_env([{ports, Listeners}], Cfg),
-    {ok, DcCfg} = mtp_test_middle_server:start_dc(PubKey, DcConf, #{}),
+    {ok, DcCfg} = mtp_test_datacenter:start_dc(PubKey, DcConf, #{}),
     application:load(mtproto_proxy),
     {ok, _} = application:ensure_all_started(mtproto_proxy),
     [{dc_id, DcId},
@@ -113,7 +113,7 @@ stop_single(Cfg) ->
     DcCfg = ?config(dc_conf, Cfg),
     MetricPid = ?config(metric, Cfg),
     ok = application:stop(mtproto_proxy),
-    {ok, _} = mtp_test_middle_server:stop_dc(DcCfg),
+    {ok, _} = mtp_test_datacenter:stop_dc(DcCfg),
     gen_server:stop(MetricPid),
     Cfg.
 
