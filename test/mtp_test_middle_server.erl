@@ -1,12 +1,5 @@
 %% Fake telegram server
-%% Secret = crypto:strong_rand_bytes(128).
-%% DcConf = [{1, {127, 0, 0, 1}, 8888}, {2, {127, 0, 0, 1}, 8889}].
-%% Cfg = mtp_test_midle_server:dc_list_to_config(DcConf).
-%% mtp_test_midle_server:start_config_server({127, 0, 0, 1}, 3333, Secret, Cfg).
-%% mtp_test_midle_server:start(dc1, #{port => 8888, ip => {127, 0, 0, 1}, secret => Secret}).
-%% mtp_test_midle_server:start(dc2, #{port => 8889, ip => {127, 0, 0, 1}, secret => Secret}).
-%% application:ensure_all_started(mtproto_proxy).
--module(mtp_test_midle_server).
+-module(mtp_test_middle_server).
 -behaviour(ranch_protocol).
 -behaviour(gen_statem).
 
@@ -57,15 +50,15 @@
 -define(SECRET_PATH, "/getProxySecret").
 -define(CONFIG_PATH, "/getProxyConfig").
 
--type state_name() :: wait_nonce | wait_handshake | on_tunnel.
+%% -type state_name() :: wait_nonce | wait_handshake | on_tunnel.
 
 start_dc() ->
     Secret = crypto:strong_rand_bytes(128),
     DcConf = [{1, {127, 0, 0, 1}, 8888}],
-    {ok, _Cfg} = mtp_test_midle_server:start_dc(Secret, DcConf, #{}).
+    {ok, _Cfg} = start_dc(Secret, DcConf, #{}).
 
 start_dc(Secret, DcConf, Acc) ->
-    Cfg = mtp_test_midle_server:dc_list_to_config(DcConf),
+    Cfg = mtp_test_middle_server:dc_list_to_config(DcConf),
     {ok, Acc1} = start_config_server({127, 0, 0, 1}, 3333, Secret, Cfg, Acc),
     Ids =
         [begin
@@ -76,7 +69,7 @@ start_dc(Secret, DcConf, Acc) ->
     {ok, Acc1#{srv_ids => Ids}}.
 
 stop_dc(#{srv_ids := Ids} = Acc) ->
-    Acc1 = stop_config_server(Acc),
+    {ok, Acc1} = stop_config_server(Acc),
     ok = lists:foreach(fun stop/1, Ids),
     {ok, maps:without([srv_ids], Acc1)}.
 
@@ -86,14 +79,13 @@ stop_dc(#{srv_ids := Ids} = Acc) ->
 
 %% Api
 start_config_server(Ip, Port, Secret, DcConfig, Acc) ->
+    application:load(mtproto_proxy),
     Netloc = lists:flatten(io_lib:format("http://~s:~w", [inet:ntoa(Ip), Port])),
     Env = [{proxy_secret_url,
             Netloc ++ ?SECRET_PATH},
            {proxy_config_url,
             Netloc ++ ?CONFIG_PATH},
            {external_ip, "127.0.0.1"},
-           {init_dc_connections, 1},
-           {num_acceptors, 4},
            {ip_lookup_services, undefined}],
     OldEnv =
         [begin
@@ -245,15 +237,21 @@ wait_handshake(info, {tcp, _Sock, TcpData},
      activate(#t_state{sock = Sock,
                        transport = Transport,
                        codec = Codec2,
-                       clients = #{}})}.
+                       clients = #{}})};
+wait_handshake(Type, Event, S) ->
+    handle_event(Type, Event, ?FUNCTION_NAME, S).
+
 
 on_tunnel(info, {tcp, _Sock, TcpData}, #t_state{codec = Codec0} = S) ->
     {ok, S2, Codec1} =
         mtp_codec:fold_packets(
-          fun(Packet, S1) ->
-                  handle_rpc(mtp_rpc:srv_decode_packet(Packet), S1)
+          fun(Packet, S1, Codec1) ->
+                  S2 = handle_rpc(mtp_rpc:srv_decode_packet(Packet), S1#t_state{codec = Codec1}),
+                  {S2, S2#t_state.codec}
           end, S, TcpData, Codec0),
-    {keep_state, activate(S2#t_state{codec = Codec1})}.
+    {keep_state, activate(S2#t_state{codec = Codec1})};
+on_tunnel(Type, Event, S) ->
+    handle_event(Type, Event, ?FUNCTION_NAME, S).
 
 handle_event(info, {tcp_closed, _Sock}, _EventName, _S) ->
     {stop, normal}.

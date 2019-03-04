@@ -92,7 +92,7 @@ encode_packet(Bin, #codec{packet_mod = PacketMod,
     {Enc2, S#codec{crypto_state = CryptoSt1, packet_state = PacketSt1}}.
 
 
--spec fold_packets(fun( (binary(), FoldSt) -> FoldSt ),
+-spec fold_packets(fun( (binary(), FoldSt, codec()) -> FoldSt ),
                    FoldSt, binary(), codec()) ->
                           {ok, FoldSt, codec()}
                               when
@@ -100,8 +100,8 @@ encode_packet(Bin, #codec{packet_mod = PacketMod,
 fold_packets(Fun, FoldSt, Data, Codec) ->
     case try_decode_packet(Data, Codec) of
         {ok, Decoded, Codec1} ->
-            FoldSt1 = Fun(Decoded, FoldSt),
-            fold_packets(Fun, FoldSt1, <<>>, Codec1);
+            {FoldSt1, Codec2} = Fun(Decoded, FoldSt, Codec1),
+            fold_packets(Fun, FoldSt1, <<>>, Codec2);
         {incomplete, Codec1} ->
             {ok, FoldSt, Codec1}
     end.

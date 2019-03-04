@@ -230,13 +230,13 @@ handle_upstream_data(Bin, #state{stage = tunnel,
                                  codec = UpCodec} = S) ->
     {ok, S3, UpCodec1} =
         mtp_codec:fold_packets(
-          fun(Decoded, S1) ->
+          fun(Decoded, S1, Codec1) ->
                   mtp_metric:histogram_observe(
                     [?APP, tg_packet_size, bytes],
                     byte_size(Decoded),
                     #{labels => [upstream_to_downstream]}),
-                  {ok, S2} = down_send(Decoded, S1),
-                  S2
+                  {ok, S2} = down_send(Decoded, S1#state{codec = Codec1}),
+                  {S2, S2#state.codec}
           end, S, Bin, UpCodec),
     {ok, S3#state{codec = UpCodec1}};
 handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, stage_state = <<>>,
