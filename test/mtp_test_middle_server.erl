@@ -98,12 +98,13 @@ start_config_server(Ip, Port, Secret, DcConfig, Acc) ->
              end,
              {K, OldV}
          end || {K, V} <- Env],
+    RootDir = code:lib_dir(mtproto_proxy, test),
     {ok, Pid} =
         inets:start(httpd,
                     [{port, Port},
                      {server_name, "mtp_config"},
                      {server_root, "/tmp"},
-                     {document_root, code:priv_dir(mtproto_proxy)},
+                     {document_root, RootDir},
 
                      {bind_address, Ip},
                      {modules, [?MODULE]},
