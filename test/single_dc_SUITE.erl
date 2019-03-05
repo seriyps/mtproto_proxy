@@ -12,6 +12,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-define(APP, mtproto_proxy).
 
 all() ->
     %% All exported functions of arity 1 whose name ends with "_case"
@@ -38,6 +39,7 @@ init_per_testcase(Name, Cfg) ->
 end_per_testcase(Name, Cfg) ->
     ?MODULE:Name({post, Cfg}).
 
+%% @doc Send single packet and receive it back
 echo_secure_case({pre, Cfg}) ->
     setup_single(?FUNCTION_NAME, ?LINE, Cfg);
 echo_secure_case({post, Cfg}) ->
@@ -53,19 +55,20 @@ echo_secure_case(Cfg) when is_list(Cfg) ->
     ok = mtp_test_client:close(Cli2),
     ?assertEqual(Data, Packet),
     ?assertEqual(1, mtp_test_metric:get_tags(
-                      count, [mtproto_proxy,in_connection,total], [?FUNCTION_NAME])),
+                      count, [?APP,in_connection,total], [?FUNCTION_NAME])),
     %% race-condition
     %% ?assertEqual(1, mtp_test_metric:get_tags(
-    %%                   count, [mtproto_proxy,in_connection_closed,total], [?FUNCTION_NAME])),
+    %%                   count, [?APP,in_connection_closed,total], [?FUNCTION_NAME])),
     ?assertEqual({1, 64, 64, 64},
                  mtp_test_metric:get_tags(
-                   histogram, [mtproto_proxy,tg_packet_size,bytes],
+                   histogram, [?APP,tg_packet_size,bytes],
                    [upstream_to_downstream])),
     ?assertMatch({1, _, _, _},                  % larger because of RPC headers
                  mtp_test_metric:get_tags(
-                   histogram, [mtproto_proxy,tg_packet_size,bytes],
+                   histogram, [?APP,tg_packet_size,bytes],
                    [downstream_to_upstream])).
 
+%% @doc Send many packets and receive them back
 echo_abridged_many_packets_case({pre, Cfg}) ->
     setup_single(?FUNCTION_NAME, ?LINE, Cfg);
 echo_abridged_many_packets_case({post, Cfg}) ->
@@ -82,7 +85,19 @@ echo_abridged_many_packets_case(Cfg) when is_list(Cfg) ->
     timer:sleep(10),                % TODO: some hook in proxy to find when sent
     {ok, RecvPackets, Cli} = mtp_test_client:recv_all(Cli2, 1000),
     ok = mtp_test_client:close(Cli),
-    ?assertEqual(Packets, RecvPackets).
+    ?assertEqual(Packets, RecvPackets),
+    ?assertEqual({length(Packets),                                       %total count
+                  iolist_size(Packets),                                  %total sum
+                  lists:min(lists:map(fun erlang:byte_size/1, Packets)), %min
+                  lists:max(lists:map(fun erlang:byte_size/1, Packets))  %max
+                 },
+                 mtp_test_metric:get_tags(
+                   histogram, [?APP,tg_packet_size,bytes],
+                   [upstream_to_downstream])).
+
+%% TODO: backpressure tests
+
+%% TODO: send a lot, not read, and then close test
 
 %% Helpers
 
