@@ -1,3 +1,4 @@
+%% @doc Property-based tests for mtp_abridged
 -module(prop_mtp_abridged).
 -include_lib("proper/include/proper.hrl").
 

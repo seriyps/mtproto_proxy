@@ -1,3 +1,4 @@
+%% @doc property-based tests for mtp_intermediate
 -module(prop_mtp_intermediate).
 -include_lib("proper/include/proper.hrl").
 

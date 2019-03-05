@@ -1,3 +1,4 @@
+%% @doc property-based tests for mtp_obfuscated
 -module(prop_mtp_obfuscated).
 -include_lib("proper/include/proper.hrl").
 

@@ -1,3 +1,4 @@
+%% @doc Simple mtproto proxy client
 -module(mtp_test_client).
 
 -export([connect/5,

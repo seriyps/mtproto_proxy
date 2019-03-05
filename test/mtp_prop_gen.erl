@@ -1,4 +1,4 @@
-%% Common data generators for property-based tests
+%% @doc Common data generators for property-based tests
 
 -module(mtp_prop_gen).
 -include_lib("proper/include/proper.hrl").

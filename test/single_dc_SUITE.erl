@@ -1,4 +1,4 @@
-%% Basic tests with only one telegram DC
+%% @doc Basic tests with only one telegram DC
 -module(single_dc_SUITE).
 
 -export([all/0,

@@ -1,3 +1,4 @@
+%% @doc property-based tests for mtp_rpc
 -module(prop_mtp_rpc).
 -include_lib("proper/include/proper.hrl").
 
@@ -63,7 +64,7 @@ s2c_packet(Packet) ->
 
 
 prop_c2s_packet(doc) ->
-    "Tests encode/decode of 'proxy_ans'/'close_ext' RPC packets".
+    "Tests encode/decode of 'data'/'remote_closed' RPC packets".
 
 prop_c2s_packet() ->
     ?FORALL(Packet, c2s_packet_gen(), c2s_packet(Packet)).

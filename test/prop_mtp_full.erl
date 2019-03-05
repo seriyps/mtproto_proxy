@@ -1,3 +1,4 @@
+%% @doc property-based tests for mtp_full
 -module(prop_mtp_full).
 -include_lib("proper/include/proper.hrl").
 

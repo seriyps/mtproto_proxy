@@ -1,3 +1,5 @@
+%% @doc simple metric backend to be used in tests.
+%% XXX: DON'T USE IN PRODUCTION! It can become bottleneck!
 -module(mtp_test_metric).
 
 -behaviour(gen_server).

@@ -1,3 +1,4 @@
+%% @doc Property-based tests for mtp_aes_cbc
 -module(prop_mtp_aes_cbc).
 -include_lib("proper/include/proper.hrl").
 

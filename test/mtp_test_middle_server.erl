@@ -1,4 +1,4 @@
-%% Fake telegram "middle-proxy" server
+%% @doc Fake telegram "middle-proxy" server
 -module(mtp_test_middle_server).
 -behaviour(ranch_protocol).
 -behaviour(gen_statem).
