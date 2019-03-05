@@ -61,6 +61,7 @@ How to start OS-install - quick
 -----------------------------------
 
 ```bash
+wget https://packages.erlang-solutions.com/erlang-solutions_1.0_all.deb && dpkg -i erlang-solutions_1.0_all.deb
 sudo apt install erlang-nox erlang-dev build-essential
 git clone https://github.com/seriyps/mtproto_proxy.git
 cd mtproto_proxy/
@@ -86,6 +87,12 @@ sudo apt install erlang-nox erlang-dev build-essential
 You need Erlang version 20 or higher! If your version is older, please, check
 [Erlang solutions esl-erlang package](https://www.erlang-solutions.com/resources/download.html)
 or use [kerl](https://github.com/kerl/kerl).
+
+<b>Quick command to add repository:</b>
+
+```bash
+wget https://packages.erlang-solutions.com/erlang-solutions_1.0_all.deb && dpkg -i erlang-solutions_1.0_all.deb
+```
 
 ### Get the code:
 
