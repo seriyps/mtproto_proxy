@@ -293,8 +293,12 @@ non_ack_bump(Upstream, Size, #state{non_ack_count = Cnt,
                                              UpsOct + Size}}}).
 
 %% Do we have too much unconfirmed packets?
-is_overflow(#state{non_ack_count = Cnt, non_ack_bytes = Oct}) ->
-    (Cnt > ?MAX_NON_ACK_COUNT) orelse (Oct > ?MAX_NON_ACK_BYTES).
+is_overflow(#state{non_ack_count = Cnt}) when Cnt > ?MAX_NON_ACK_COUNT ->
+    count;
+is_overflow(#state{non_ack_bytes = Oct}) when Oct > ?MAX_NON_ACK_BYTES ->
+    bytes;
+is_overflow(_) ->
+    false.
 
 %% If we are not overflown and socket is passive, activate it
 activate_if_no_overflow(#state{overflow_passive = false, sock = Sock}) ->
@@ -323,14 +327,14 @@ handle_ack(Upstream, Count, Size, #state{non_ack_count = Cnt,
 
 maybe_deactivate(#state{overflow_passive = false, dc_id = Dc} = St) ->
     case is_overflow(St) of
-        true ->
-            %% Was not overflow, now overflowed
-            mtp_metric:count_inc([?APP, down_backpressure, total], 1,
-                                 #{labels => [Dc, true]}),
-            St#state{overflow_passive = true};
         false ->
             %% Was not overflow and still not
-            St
+            St;
+        Type ->
+            %% Was not overflow, now overflowed
+            mtp_metric:count_inc([?APP, down_backpressure, total], 1,
+                                 #{labels => [Dc, Type]}),
+            St#state{overflow_passive = true}
     end;
 maybe_deactivate(St) ->
     St.
@@ -338,15 +342,15 @@ maybe_deactivate(St) ->
 %% Activate socket if we changed state from overflow to ok
 maybe_activate(#state{overflow_passive = true, sock = Sock, dc_id = Dc} = St) ->
     case is_overflow(St) of
-        true ->
-            %% Still overflow
-            St;
         false ->
             %% Was overflow, but now resolved
             ok = inet:setopts(Sock, [{active, once}]),
             mtp_metric:count_inc([?APP, down_backpressure, total], 1,
-                                 #{labels => [Dc, false]}),
-            St#state{overflow_passive = false}
+                                 #{labels => [Dc, off]}),
+            St#state{overflow_passive = false};
+        _ ->
+            %% Still overflow
+            St
     end;
 maybe_activate(#state{} = St) ->
     St.

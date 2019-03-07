@@ -126,7 +126,7 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
     %% Backpressure by size limit is defined in mtp_down_conn.erl:?MAX_NON_ACK_BYTES
     BPressureThreshold = ?MB(6),
     PacketSize = ?KB(400),
-    NPackets = 2 * BPressureThreshold div PacketSize,
+    NPackets = 4 * BPressureThreshold div PacketSize,
     Packet = crypto:strong_rand_bytes(PacketSize),
     Req = mtp_test_cmd_rpc:call(?MODULE, gen_rpc_replies,
                                 #{packet => Packet, n => NPackets}),
@@ -135,7 +135,7 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
     %% Wait for backpressure-in
     ?assertEqual(
        ok, mtp_test_metric:wait_for_value(
-             count, [?APP, down_backpressure, total], [DcId, true], 1, 5000)),
+             count, [?APP, down_backpressure, total], [DcId, bytes], 1, 5000)),
     %% Upstream healthcheck should be disabled, otherwise it can interfere
     ?assertEqual(not_found,
                  mtp_test_metric:get_tags(
@@ -143,7 +143,7 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
     %% No backpressure-out, because we don't read any data
     ?assertEqual(not_found,
                  mtp_test_metric:get_tags(
-                   count, [?APP, down_backpressure, total], [DcId, false])),
+                   count, [?APP, down_backpressure, total], [DcId, off])),
     %% Amount of bytes received by proxy will be bigger than amount sent to upstreams
     TgToProxy =
         mtp_test_metric:get_tags(
@@ -156,7 +156,7 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
     {ok, _RecvPackets, Cli2} = mtp_test_client:recv_all(Cli1, 1000),
     ?assertEqual(
        ok, mtp_test_metric:wait_for(
-             count, [?APP, down_backpressure, total], [DcId, true],
+             count, [?APP, down_backpressure, total], [DcId, bytes],
              fun(V) -> is_integer(V) and (V > 0) end, 5000)),
     ok = mtp_test_client:close(Cli2),
     %% ct:pal("t->p ~p; p->c ~p; diff ~p",
@@ -198,7 +198,7 @@ downstream_qlen_backpressure_case(Cfg) when is_list(Cfg) ->
     %% Wait for backpressure-in
     ?assertEqual(
        ok, mtp_test_metric:wait_for_value(
-             count, [?APP, down_backpressure, total], [DcId, true], 1, 5000)),
+             count, [?APP, down_backpressure, total], [DcId, count], 1, 5000)),
     %% Close connection to release backpressure
     ok = mtp_test_client:close(Cli1),
     ?assertEqual(
@@ -206,7 +206,7 @@ downstream_qlen_backpressure_case(Cfg) when is_list(Cfg) ->
              count, [?APP, in_connection_closed, total], [?FUNCTION_NAME], 1, 5000)),
     ?assertEqual(
        ok, mtp_test_metric:wait_for(
-             count, [?APP, down_backpressure, total], [DcId, true],
+             count, [?APP, down_backpressure, total], [DcId, off],
              fun(V) -> is_integer(V) and (V > 0) end, 5000)),
     %% [{_, Pid, _, _}] = supervisor:which_children(mtp_down_conn_sup),
     %% ct:pal("Down conn state: ~p", [sys:get_state(Pid)]),
