@@ -19,6 +19,7 @@ connect(Host, Port, Secret, DcId, Protocol) ->
     Opts = [{packet, raw},
             {mode, binary},
             {active, false},
+            {buffer, 1024},
             {send_timeout, 5000}],
     {ok, Sock} = gen_tcp:connect(Host, Port, Opts, 1000),
     {Header, _, _, CryptoLayer} = mtp_obfuscated:client_create(Secret, Protocol, DcId),

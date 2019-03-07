@@ -169,6 +169,10 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
 
 %% @doc test downstream backpressure when count of non-acknowledged packets grows above threshold
 downstream_qlen_backpressure_case({pre, Cfg}) ->
+    application:load(mtproto_proxy),
+    %% Reducing downstream socket buffer size. Otherwise we can get queue overflow from just single
+    %% socket data packet
+    application:set_env(mtproto_proxy, downstream_socket_buffer_size, 1024),
     Cfg1 = setup_single(?FUNCTION_NAME, ?LINE, #{rpc_handler => mtp_test_cmd_rpc}, Cfg),
     %% Disable upstream healthchecks
     application:set_env(?APP, upstream_healthchecks, []),
