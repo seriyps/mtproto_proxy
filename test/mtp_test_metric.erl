@@ -9,7 +9,9 @@
 -export([notify/4]).
 -export([get/2,
          get/3,
-         get_tags/3]).
+         get_tags/3,
+         wait_for_value/5,
+         wait_for/5]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -36,6 +38,29 @@ get(Type, Name, Extra) ->
 
 get_tags(Type, Name, Tags) ->
     get(Type, Name, #{labels => Tags}).
+
+wait_for_value(Type, Name, Tags, Value, Timeout) ->
+    Now = erlang:monotonic_time(millisecond),
+    Test = fun(Current) -> Current == Value end,
+    wait_for_till(Type, Name, #{labels => Tags}, Test, Now + Timeout).
+
+wait_for(Type, Name, Tags, Test, Timeout) ->
+    Now = erlang:monotonic_time(millisecond),
+    wait_for_till(Type, Name, #{labels => Tags}, Test, Now + Timeout).
+
+wait_for_till(Type, Name, Extra, Test, Deadline) ->
+    case Test(get(Type, Name, Extra)) of
+        true -> ok;
+        false ->
+            Now = erlang:monotonic_time(millisecond),
+            case Now >= Deadline of
+                true ->
+                    timeout;
+                false ->
+                    timer:sleep(10),
+                    wait_for_till(Type, Name, Extra, Test, Deadline)
+            end
+    end.
 
 
 init([]) ->

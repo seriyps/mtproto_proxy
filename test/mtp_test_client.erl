@@ -63,7 +63,7 @@ recv_packet_inner(#client{sock = Sock, codec = Codec0} = Client, Timeout) ->
 recv_all(#client{sock = Sock, codec = Codec0} = Client, Timeout) ->
     case tcp_recv_all(Sock, Timeout) of
         {ok, Stream} ->
-            io:format("~p: ~p~n", [byte_size(Stream), Stream]),
+            %% io:format("~p: ~p~n", [byte_size(Stream), Stream]),
             {ok, Packets, Codec} =
                 mtp_codec:fold_packets(
                   fun(Packet, Acc, Codec) ->
@@ -79,7 +79,7 @@ recv_all(#client{sock = Sock, codec = Codec0} = Client, Timeout) ->
     end.
 
 tcp_recv_all(Sock, Timeout) ->
-    io:format("Sock: ~p; Timeout: ~p~n~n~n", [Sock, Timeout]),
+    %% io:format("Sock: ~p; Timeout: ~p~n~n~n", [Sock, Timeout]),
     case gen_tcp:recv(Sock, 0, Timeout) of
         {ok, Stream} ->
             tcp_recv_all_inner(Sock, Stream);
