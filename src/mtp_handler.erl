@@ -345,28 +345,31 @@ maybe_check_health(#state{last_queue_check = LastCheck} = S) ->
             end
     end.
 
-%% 1. If proc queue > 300 - stop
-%% 2. If proc total memory > 400kb - do GC and go to 3
-%% 3. If proc total memory > 4mb - stop
+%% 1. If proc queue > qlen - stop
+%% 2. If proc total memory > gc - do GC and go to 3
+%% 3. If proc total memory > total_mem - stop
 check_health() ->
-    do_check_health([qlen, gc, total_mem], calc_health()).
+    %% see .app.src
+    Defaults = [{qlen, 300},
+                {gc, 409600},
+                {total_mem, 3145728}],
+    Checks = application:get_env(?APP, upstream_healthchecks, Defaults),
+    do_check_health(Checks, calc_health()).
 
-do_check_health([qlen | _], #{message_queue_len := QLen} = Health) when
-      QLen > ?HEALTH_CHECK_MAX_QLEN ->
+do_check_health([{qlen, Limit} | _], #{message_queue_len := QLen} = Health) when QLen > Limit ->
     mtp_metric:count_inc([?APP, healthcheck, total], 1,
                          #{labels => [message_queue_len]}),
     lager:warning("Upstream too large queue_len=~w, health=~p", [QLen, Health]),
     overflow;
-do_check_health([gc | Other], #{total_mem := TotalMem}) when
-      TotalMem > ?HEALTH_CHECK_GC ->
+do_check_health([{gc, Limit} | Other], #{total_mem := TotalMem}) when TotalMem > Limit ->
     %% Maybe it doesn't makes sense to do GC if queue len is more than, eg, 50?
     %% In this case allmost all memory will be in msg queue
     mtp_metric:count_inc([?APP, healthcheck, total], 1,
                          #{labels => [force_gc]}),
     erlang:garbage_collect(self()),
     do_check_health(Other, calc_health());
-do_check_health([total_mem | _Other], #{total_mem := TotalMem} = Health) when
-      TotalMem > ?HEALTH_CHECK_MAX_MEM ->
+do_check_health([{total_mem, Limit} | _Other], #{total_mem := TotalMem} = Health) when
+      TotalMem > Limit ->
     mtp_metric:count_inc([?APP, healthcheck, total], 1,
                          #{labels => [total_memory]}),
     lager:warning("Process too large total_mem=~p, health=~p",

@@ -74,6 +74,13 @@
         %% Mostly used to testing
         %% {proxy_secret_url, "https://core.telegram.org/getProxySecret"},
         %% {proxy_config_url, "https://core.telegram.org/getProxyConfig"},
+
+        %% Upstream self-healthchecks tuning
+        %% {upstream_healthchecks,
+        %%  [{qlen, 300},         % if queue length >X - close connection
+        %%   {gc, 409600},        % if connection memory >X - do garbage collection
+        %%   {total_mem, 3145728} % if connection memory >X - close connection
+        %%  ]},
        ]},
   {modules, []},
 
