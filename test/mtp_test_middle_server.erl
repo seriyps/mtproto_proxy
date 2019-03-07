@@ -28,12 +28,14 @@
          cli_ts,
          sender_pid,
          peer_pid,
-         srv_nonce}).
+         srv_nonce,
+         rpc_handler}).
 -record(t_state,
         {sock,
          transport,
          codec,
-         clients = #{} :: #{}}).
+         rpc_handler,
+         rpc_handler_state}).
 
 -define(RPC_NONCE, 170,135,203,122).
 -define(RPC_HANDSHAKE, 245,238,130,118).
@@ -42,7 +44,7 @@
 %% -type state_name() :: wait_nonce | wait_handshake | on_tunnel.
 
 %% Api
-start(Id, Opts) ->
+start(Id, #{port := _, secret := _} = Opts) ->
     {ok, _} = application:ensure_all_started(ranch),
     ranch:start_listener(
       Id, ranch_tcp,
@@ -69,10 +71,12 @@ ranch_init({Ref, Transport, Opts}) ->
 init({Socket, Transport, Opts}) ->
     Codec = mtp_codec:new(mtp_noop_codec, mtp_noop_codec:new(),
                           mtp_full, mtp_full:new(-2, -2)),
-    {ok, wait_nonce, #hs_state{sock = Socket,
-                               transport = Transport,
-                               secret = maps:get(secret, Opts),
-                               codec = Codec}}.
+    State = #hs_state{sock = Socket,
+                      transport = Transport,
+                      secret = maps:get(secret, Opts),
+                      codec = Codec,
+                      rpc_handler = maps:get(rpc_handler, Opts, mtp_test_echo_rpc)},
+    {ok, wait_nonce, State}.
 
 callback_mode() ->
     state_functions.
@@ -131,12 +135,14 @@ wait_handshake(info, {tcp, _Sock, TcpData},
     Answer = mtp_rpc:encode_handshake({handshake, SenderPID, PeerPID}),
     {ok, #hs_state{sock = Sock,
                    transport = Transport,
-                   codec = Codec2}} = hs_send(Answer, S#hs_state{codec = Codec1}),
+                   codec = Codec2,
+                   rpc_handler = Handler}} = hs_send(Answer, S#hs_state{codec = Codec1}),
     {next_state, on_tunnel,
      activate(#t_state{sock = Sock,
                        transport = Transport,
                        codec = Codec2,
-                       clients = #{}})};
+                       rpc_handler = Handler,
+                       rpc_handler_state = Handler:init([])})};
 wait_handshake(Type, Event, S) ->
     handle_event(Type, Event, ?FUNCTION_NAME, S).
 
@@ -178,15 +184,18 @@ activate(#t_state{transport = Transport, sock = Sock} = S) ->
     ok = Transport:setopts(Sock, [{active, once}]),
     S.
 
-handle_rpc({data, ConnId, Data}, #t_state{clients = Clients} = S) ->
-    %% Echo data back
-    %% TODO: interptet Data to power some test scenarios, eg, client might
-    %% ask to close it's connection
-    {ok, S1} = t_send(mtp_rpc:srv_encode_packet({proxy_ans, ConnId, Data}), S),
-    Cnt = maps:get(ConnId, Clients, 0),
-    %% Increment can fail if there is a tombstone for this client
-    S1#t_state{clients = Clients#{ConnId => Cnt + 1}};
-handle_rpc({remote_closed, ConnId}, #t_state{clients = Clients} = S) ->
-    is_integer(maps:get(ConnId, Clients))
-        orelse error({unexpected_closed, ConnId}),
-    S#t_state{clients = Clients#{ConnId := tombstone}}.
+handle_rpc(RPC, #t_state{rpc_handler = Handler, rpc_handler_state = HSt} = S) ->
+    case Handler:handle_rpc(RPC, HSt) of
+        {rpc, Response, HSt1} ->
+            {ok, S1} = t_send(mtp_rpc:srv_encode_packet(Response),
+                              S#t_state{rpc_handler_state = HSt1}),
+            S1;
+        {rpc_multi, Responses, HSt1} ->
+            lists:foldl(
+              fun(Response, S1) ->
+                      {ok, S2} = t_send(mtp_rpc:srv_encode_packet(Response), S1),
+                      S2
+              end, S#t_state{rpc_handler_state = HSt1}, Responses);
+        {noreply, HSt1} ->
+            S#t_state{rpc_handler_state = HSt1}
+    end.

@@ -16,19 +16,28 @@
 -define(SECRET_PATH, "/getProxySecret").
 -define(CONFIG_PATH, "/getProxyConfig").
 
+-type dc_conf() :: [{DcId :: integer(),
+                     Ip :: inet:ip4_address(),
+                     Port :: inet:port_number()}].
 
 start_dc() ->
     Secret = crypto:strong_rand_bytes(128),
     DcConf = [{1, {127, 0, 0, 1}, 8888}],
     {ok, _Cfg} = start_dc(Secret, DcConf, #{}).
 
+-spec start_dc(binary(), dc_conf(), #{}) -> {ok, #{}}.
 start_dc(Secret, DcConf, Acc) ->
     Cfg = dc_list_to_config(DcConf),
     {ok, Acc1} = start_config_server({127, 0, 0, 1}, 3333, Secret, Cfg, Acc),
+    RpcHandler = maps:get(rpc_handler, Acc, mtp_test_echo_rpc),
     Ids =
         [begin
              Id = {?MODULE, DcId},
-             {ok, _Pid} = mtp_test_middle_server:start(Id, #{port => Port, ip => Ip, secret => Secret}),
+             {ok, _Pid} = mtp_test_middle_server:start(
+                            Id, #{port => Port,
+                                  ip => Ip,
+                                  secret => Secret,
+                                  rpc_handler => RpcHandler}),
              Id
          end || {DcId, Ip, Port} <- DcConf],
     {ok, Acc1#{srv_ids => Ids}}.
