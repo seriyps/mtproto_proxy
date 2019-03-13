@@ -13,6 +13,9 @@
          downstream_qlen_backpressure_case/1
         ]).
 
+-export([set_env/2,
+         reset_env/1]).
+
 -export([gen_rpc_replies/3]).
 
 -include_lib("common_test/include/ct.hrl").
@@ -49,7 +52,7 @@ end_per_testcase(Name, Cfg) ->
 
 %% @doc Send single packet and receive it back
 echo_secure_case({pre, Cfg}) ->
-    setup_single(?FUNCTION_NAME, ?LINE, #{}, Cfg);
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
 echo_secure_case({post, Cfg}) ->
     stop_single(Cfg);
 echo_secure_case(Cfg) when is_list(Cfg) ->
@@ -78,7 +81,7 @@ echo_secure_case(Cfg) when is_list(Cfg) ->
 
 %% @doc Send many packets and receive them back
 echo_abridged_many_packets_case({pre, Cfg}) ->
-    setup_single(?FUNCTION_NAME, ?LINE, #{}, Cfg);
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
 echo_abridged_many_packets_case({post, Cfg}) ->
     stop_single(Cfg);
 echo_abridged_many_packets_case(Cfg) when is_list(Cfg) ->
@@ -111,11 +114,11 @@ echo_abridged_many_packets_case(Cfg) when is_list(Cfg) ->
 
 %% @doc test downstream backpressure when size of non-acknowledged packets grows above threshold
 downstream_size_backpressure_case({pre, Cfg}) ->
-    Cfg1 = setup_single(?FUNCTION_NAME, ?LINE, #{rpc_handler => mtp_test_cmd_rpc}, Cfg),
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{rpc_handler => mtp_test_cmd_rpc}, Cfg),
     %% Disable upstream healthchecks
-    application:set_env(?APP, upstream_healthchecks, []),
-    Cfg1;
+    set_env([{upstream_healthchecks, []}], Cfg1);
 downstream_size_backpressure_case({post, Cfg}) ->
+    reset_env(Cfg),
     stop_single(Cfg);
 downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
     DcId = ?config(dc_id, Cfg),
@@ -171,13 +174,13 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
 downstream_qlen_backpressure_case({pre, Cfg}) ->
     application:load(mtproto_proxy),
     %% Reducing downstream socket buffer size. Otherwise we can get queue overflow from just single
-    %% socket data packet
-    application:set_env(mtproto_proxy, downstream_socket_buffer_size, 1024),
-    Cfg1 = setup_single(?FUNCTION_NAME, ?LINE, #{rpc_handler => mtp_test_cmd_rpc}, Cfg),
+    %% socket data packet;
     %% Disable upstream healthchecks
-    application:set_env(?APP, upstream_healthchecks, []),
-    Cfg1;
+    Cfg1 = set_env([{downstream_socket_buffer_size, 1024},
+                    {upstream_healthchecks, []}], Cfg),
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{rpc_handler => mtp_test_cmd_rpc}, Cfg1);
 downstream_qlen_backpressure_case({post, Cfg}) ->
+    reset_env(Cfg),
     stop_single(Cfg);
 downstream_qlen_backpressure_case(Cfg) when is_list(Cfg) ->
     DcId = ?config(dc_id, Cfg),
@@ -222,13 +225,12 @@ gen_rpc_replies(#{packet := Packet, n := N}, ConnId, St) ->
 
 %% Helpers
 
-setup_single(Name, Offset, DcCfg0, Cfg) ->
+setup_single(Name, MtpPort, DcCfg0, Cfg) ->
     {ok, Pid} = mtp_test_metric:start_link(),
     PubKey = crypto:strong_rand_bytes(128),
     DcId = 1,
     Ip = {127, 0, 0, 1},
-    DcConf = [{DcId, Ip, 10000 + Offset}],
-    MtpPort = 10000 + Offset + 1,
+    DcConf = [{DcId, Ip, MtpPort + 10}],
     Secret = mtp_handler:hex(crypto:strong_rand_bytes(16)),
     Listeners = [#{name => Name,
                    port => MtpPort,
@@ -270,11 +272,11 @@ set_env(Env, Cfg) ->
          end || {K, V} <- Env],
     [{mtp_env, OldEnv} | Cfg].
 
-%% reset_env(Cfg) ->
-%%     OldEnv = ?config(mtp_env, Cfg),
-%%     [case V of
-%%          undefined ->
-%%              application:unset_env(mtproto_proxy, K);
-%%          {ok, Val} ->
-%%              application:set_env(mtproto_proxy, K, Val)
-%%      end || {K, V} <- OldEnv].
+reset_env(Cfg) ->
+    OldEnv = ?config(mtp_env, Cfg),
+    [case V of
+         undefined ->
+             application:unset_env(mtproto_proxy, K);
+         {ok, Val} ->
+             application:set_env(mtproto_proxy, K, Val)
+     end || {K, V} <- OldEnv].

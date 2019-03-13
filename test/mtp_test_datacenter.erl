@@ -8,6 +8,7 @@
          stop_dc/1,
          start_config_server/5,
          stop_config_server/1]).
+-export([middle_connections/1]).
 -export([dc_list_to_config/1]).
 -export([do/1]).
 
@@ -46,6 +47,10 @@ stop_dc(#{srv_ids := Ids} = Acc) ->
     {ok, Acc1} = stop_config_server(Acc),
     ok = lists:foreach(fun mtp_test_middle_server:stop/1, Ids),
     {ok, maps:without([srv_ids], Acc1)}.
+
+middle_connections(#{srv_ids := Ids}) ->
+    lists:flatten([ranch:procs(Id, connections)
+                   || Id <- Ids]).
 
 %%
 %% Inets HTTPD to use as a mock for https://core.telegram.org

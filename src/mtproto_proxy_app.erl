@@ -16,9 +16,9 @@
 %%====================================================================
 start(_StartType, _StartArgs) ->
     Res = {ok, _} = mtproto_proxy_sup:start_link(),
-    io:format("+++++++++++++++++++++++++++++++++++++++~n"
-              "Erlang MTProto proxy by @seriyps https://github.com/seriyps/mtproto_proxy~n"
-              "Sponsored by and powers @socksy_bot~n"),
+    report("+++++++++++++++++++++++++++++++++++++++~n"
+           "Erlang MTProto proxy by @seriyps https://github.com/seriyps/mtproto_proxy~n"
+           "Sponsored by and powers @socksy_bot~n", []),
     [start_proxy(Where) || Where <- application:get_env(?APP, ports, [])],
     Res.
 
@@ -52,9 +52,13 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
             "https://t.me/proxy?server=~s&port=~w&secret=~s",
             [application:get_env(?APP, external_ip, ListenIpStr),
              Port, Secret]),
-    io:format("Proxy started on ~s:~p with secret: ~s, tag: ~s~nUrl: ~s~n",
-              [ListenIpStr, Port, Secret, Tag, Url]),
+    report("Proxy started on ~s:~p with secret: ~s, tag: ~s~nUrl: ~s~n",
+           [ListenIpStr, Port, Secret, Tag, Url]),
     Res.
 
 stop_proxy(#{name := Name}) ->
     ranch:stop_listener(Name).
+
+report(Fmt, Args) ->
+    io:format(Fmt, Args),
+    lager:info(Fmt, Args).

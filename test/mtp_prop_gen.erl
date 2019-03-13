@@ -51,6 +51,4 @@ dc_id() ->
 
 codec() ->
     Protocols = [mtp_abridged, mtp_intermediate, mtp_secure],
-    proper_types:oneof(
-      [proper_types:exactly(P)
-       || P <- Protocols]).
+    proper_types:oneof(Protocols).

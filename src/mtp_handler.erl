@@ -26,9 +26,6 @@
 -define(MAX_UP_INIT_BUF_SIZE, 1024 * 1024).     %1mb
 
 -define(HEALTH_CHECK_INTERVAL, 5000).
--define(HEALTH_CHECK_MAX_QLEN, 300).
--define(HEALTH_CHECK_GC, 400 * 1024).            %400kb
--define(HEALTH_CHECK_MAX_MEM, 3 * 1024 * 1024).  %3mb
 
 -define(APP, mtproto_proxy).
 

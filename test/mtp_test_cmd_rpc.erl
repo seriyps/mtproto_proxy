@@ -30,11 +30,15 @@ handle_rpc({data, ConnId, Req}, St) ->
     case M:F(Opts, ConnId, St) of
         {reply, Resp, St1} ->
             {rpc, {proxy_ans, ConnId, term_to_packet(Resp)}, St1};
+        {close, St1} ->
+            {rpc, {close_ext, ConnId}, tombstone(ConnId, St1)};
         {return, What} ->
             What
     end;
 handle_rpc({remote_closed, ConnId}, St) ->
-    is_integer(maps:get(ConnId, St, undefined))
-        orelse error({unexpected_closed, ConnId}),
-    {noreply, St#{ConnId := tombstone}}.
+    {noreply, tombstone(ConnId, St)}.
 
+tombstone(ConnId, St) ->
+    ({ok, tombstone} =/= maps:find(ConnId, St))
+        orelse error({already_closed, ConnId}),
+    St#{ConnId => tombstone}.

@@ -4,7 +4,8 @@
 -behaviour(gen_statem).
 
 -export([start/2,
-         stop/1]).
+         stop/1,
+         get_rpc_handler_state/1]).
 -export([start_link/4,
          ranch_init/1]).
 -export([init/1,
@@ -56,6 +57,9 @@ start(Id, #{port := _, secret := _} = Opts) ->
 
 stop(Id) ->
     ranch:stop_listener(Id).
+
+get_rpc_handler_state(Pid) ->
+    gen_statem:call(Pid, get_rpc_handler_state).
 
 %% Callbacks
 
@@ -155,6 +159,8 @@ on_tunnel(info, {tcp, _Sock, TcpData}, #t_state{codec = Codec0} = S) ->
                   {S2, S2#t_state.codec}
           end, S, TcpData, Codec0),
     {keep_state, activate(S2#t_state{codec = Codec1})};
+on_tunnel({call, From}, get_rpc_handler_state, #t_state{rpc_handler_state = HSt}) ->
+    {keep_state_and_data, [{reply, From, HSt}]};
 on_tunnel(Type, Event, S) ->
     handle_event(Type, Event, ?FUNCTION_NAME, S).
 

@@ -48,7 +48,7 @@ recv_packet(#client{codec = Codec} = Client, Timeout) ->
 recv_packet_inner(#client{sock = Sock, codec = Codec0} = Client, Timeout) ->
     case gen_tcp:recv(Sock, 0, Timeout) of
         {ok, Stream} ->
-            io:format("~p: ~p~n", [byte_size(Stream), Stream]),
+            %% io:format("~p: ~p~n", [byte_size(Stream), Stream]),
             case mtp_codec:try_decode_packet(Stream, Codec0) of
                 {ok, Data, Codec} ->
                     {ok, Data, Client#client{codec = Codec}};
