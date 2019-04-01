@@ -29,7 +29,7 @@ start_dc() ->
 -spec start_dc(binary(), dc_conf(), #{}) -> {ok, #{}}.
 start_dc(Secret, DcConf, Acc) ->
     Cfg = dc_list_to_config(DcConf),
-    {ok, Acc1} = start_config_server({127, 0, 0, 1}, 3333, Secret, Cfg, Acc),
+    {ok, Acc1} = start_config_server({127, 0, 0, 1}, 0, Secret, Cfg, Acc),
     RpcHandler = maps:get(rpc_handler, Acc, mtp_test_echo_rpc),
     Ids =
         [begin
@@ -59,7 +59,21 @@ middle_connections(#{srv_ids := Ids}) ->
 %% Api
 start_config_server(Ip, Port, Secret, DcConfig, Acc) ->
     application:load(mtproto_proxy),
-    Netloc = lists:flatten(io_lib:format("http://~s:~w", [inet:ntoa(Ip), Port])),
+    RootDir = code:lib_dir(mtproto_proxy, test),
+    {ok, Pid} =
+        inets:start(httpd,
+                    [{port, Port},
+                     {server_name, "mtp_config"},
+                     {server_root, "/tmp"},
+                     {document_root, RootDir},
+
+                     {bind_address, Ip},
+                     {modules, [?MODULE]},
+                     {mtp_secret, Secret},
+                     {mtp_dc_conf, DcConfig}]),
+    %% Get listen port in case when Port is 0 (ephemeral)
+    [{port, RealPort}] = httpd:info(Pid, [port]),
+    Netloc = lists:flatten(io_lib:format("http://~s:~w", [inet:ntoa(Ip), RealPort])),
     Env = [{proxy_secret_url,
             Netloc ++ ?SECRET_PATH},
            {proxy_config_url,
@@ -77,18 +91,6 @@ start_config_server(Ip, Port, Secret, DcConfig, Acc) ->
              end,
              {K, OldV}
          end || {K, V} <- Env],
-    RootDir = code:lib_dir(mtproto_proxy, test),
-    {ok, Pid} =
-        inets:start(httpd,
-                    [{port, Port},
-                     {server_name, "mtp_config"},
-                     {server_root, "/tmp"},
-                     {document_root, RootDir},
-
-                     {bind_address, Ip},
-                     {modules, [?MODULE]},
-                     {mtp_secret, Secret},
-                     {mtp_dc_conf, DcConfig}]),
     {ok, Acc#{env => OldEnv,
               httpd_pid => Pid}}.
 

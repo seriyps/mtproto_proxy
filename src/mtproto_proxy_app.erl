@@ -59,6 +59,11 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
 stop_proxy(#{name := Name}) ->
     ranch:stop_listener(Name).
 
+-ifdef(TEST).
+report(Fmt, Args) ->
+    lager:debug(Fmt, Args).
+-else.
 report(Fmt, Args) ->
     io:format(Fmt, Args),
     lager:info(Fmt, Args).
+-endif.
