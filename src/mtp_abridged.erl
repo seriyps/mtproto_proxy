@@ -30,12 +30,6 @@ new() ->
 try_decode_packet(<<Flag, Len:24/unsigned-little-integer, Rest/binary>> = Data,
                       #st{buffer = <<>>} = St) when Flag == 127; Flag == 255 ->
     Len1 = Len * 4,
-    (Len1 < ?MAX_PACKET_SIZE)
-        orelse
-        begin
-            mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [abriged_max_size]}),
-            error({packet_too_large, Len1})
-        end,
     try_decode_packet_len(Len1, Rest, Data, St);
 try_decode_packet(<<Len, Rest/binary>> = Data,
                       #st{buffer = <<>>} = St) when Len >= 128 ->
@@ -51,6 +45,8 @@ try_decode_packet(Bin, #st{buffer = <<>>} = St) ->
     {incomplete, St#st{buffer = Bin}}.
 
 try_decode_packet_len(Len, LenStripped, Data, St) ->
+    (Len < ?MAX_PACKET_SIZE)
+        orelse error({protocol_error, abridged_max_size, Len}),
     case LenStripped of
         <<Packet:Len/binary, Rest/binary>> ->
             {ok, Packet, St#st{buffer = Rest}};

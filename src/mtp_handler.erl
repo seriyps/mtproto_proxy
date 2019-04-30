@@ -140,7 +140,7 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
     Size = byte_size(Data),
     mtp_metric:count_inc([?APP, received, upstream, bytes], Size, #{labels => [Listener]}),
     mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], Size, #{labels => [upstream]}),
-    case handle_upstream_data(Data, S) of
+    try handle_upstream_data(Data, S) of
         {ok, S1} ->
             ok = Transport:setopts(Sock, [{active, once}]),
             %% Consider checking health here as well
@@ -148,6 +148,10 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
         {error, Reason} ->
             lager:info("handle_data error ~p", [Reason]),
             {stop, normal, S}
+    catch error:{protocol_error, Type, Extra} ->
+            mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Type]}),
+            lager:warning("protocol_error ~p ~p", [Type, Extra]),
+            {stop, normal, maybe_close_down(S)}
     end;
 handle_info({tcp_closed, Sock}, #state{sock = Sock} = S) ->
     lager:debug("upstream sock closed"),
@@ -251,8 +255,7 @@ handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, sta
                       acc = Rest,
                       stage_state = undefined});
         {error, Reason} = Err ->
-            mtp_metric:count_inc([?APP, protocol_error, total],
-                                 1, #{labels => [Reason]}),
+            mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Reason]}),
             Err
     end;
 handle_upstream_data(Bin, #state{stage = init, stage_state = <<>>} = S) ->

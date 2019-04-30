@@ -9,6 +9,7 @@
 
 -export([echo_secure_case/1,
          echo_abridged_many_packets_case/1,
+         packet_too_large_case/1,
          downstream_size_backpressure_case/1,
          downstream_qlen_backpressure_case/1
         ]).
@@ -110,6 +111,37 @@ echo_abridged_many_packets_case(Cfg) when is_list(Cfg) ->
                  mtp_test_metric:get_tags(
                    histogram, [?APP, tg_packet_size, bytes],
                    [upstream_to_downstream])).
+
+
+%% @doc test that client trying to send too big packets will be force-disconnected
+packet_too_large_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
+packet_too_large_case({post, Cfg}) ->
+    stop_single(Cfg);
+packet_too_large_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    ErrCount = fun(Tag) ->
+                       mtp_test_metric:get_tags(count, [?APP, protocol_error, total], [Tag])
+               end,
+    OkPacket = binary:copy(<<0>>, 64),
+    BigPacket = binary:copy(<<0>>, 1024 * 1024 + 1024),
+    Protocols = [
+                 {mtp_intermediate, intermediate_max_size},
+                 {mtp_abridged, abridged_max_size}
+                ],
+    lists:foreach(
+      fun({Protocol, Metric}) ->
+              ?assertEqual(not_found, ErrCount(Metric), Protocol),
+              Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, Protocol),
+              Cli1 = mtp_test_client:send(OkPacket, Cli0),
+              {ok, OkPacket, Cli2} = mtp_test_client:recv_packet(Cli1, 5000),
+              Cli3 = mtp_test_client:send(BigPacket, Cli2),
+              ?assertEqual({error, closed}, mtp_test_client:recv_packet(Cli3, 5000), Protocol),
+              ?assertEqual(1, ErrCount(Metric), Protocol)
+      end, Protocols).
 
 
 %% @doc test downstream backpressure when size of non-acknowledged packets grows above threshold
