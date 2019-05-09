@@ -20,7 +20,8 @@
          get_netloc/1,
          get_netloc_safe/1,
          get_secret/0,
-         status/0]).
+         status/0,
+         update/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -103,14 +104,19 @@ get_secret() ->
     [{_, Key}] = ets:lookup(?TAB, key),
     Key.
 
+-spec status() -> [mtp_dc_pool:status()].
 status() ->
     [{?IDS_KEY, L}] = ets:lookup(?TAB, ?IDS_KEY),
     lists:map(
       fun(DcId) ->
               {ok, Pid} = get_downstream_pool(DcId),
-              DcPoolStatus = mtp_dc_pool:status(Pid),
-              DcPoolStatus#{dc_id => DcId}
+              mtp_dc_pool:status(Pid)
       end, L).
+
+
+-spec update() -> ok.
+update() ->
+    gen_server:cast(?MODULE, update).
 
 
 %%%===================================================================
@@ -133,8 +139,14 @@ init([]) ->
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
-handle_cast(_Request, State) ->
-    {noreply, State}.
+
+handle_cast(update, #state{timer = Timer} = State) ->
+    update(State, soft),
+    lager:info("Config updated"),
+    Timer1 = gen_timeout:bump(
+               gen_timeout:reset(Timer)),
+    {noreply, State#state{timer = Timer1}}.
+
 handle_info(timeout, #state{timer = Timer} =State) ->
     case gen_timeout:is_expired(Timer) of
         true ->

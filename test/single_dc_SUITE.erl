@@ -11,7 +11,8 @@
          echo_abridged_many_packets_case/1,
          packet_too_large_case/1,
          downstream_size_backpressure_case/1,
-         downstream_qlen_backpressure_case/1
+         downstream_qlen_backpressure_case/1,
+         config_change_case/1
         ]).
 
 -export([set_env/2,
@@ -248,10 +249,64 @@ downstream_qlen_backpressure_case(Cfg) when is_list(Cfg) ->
     %% ct:pal("Metric: ~p", [sys:get_state(mtp_test_metric)]),
     ok.
 
-
 gen_rpc_replies(#{packet := Packet, n := N}, ConnId, St) ->
     Rpcs = [{proxy_ans, ConnId, Packet} || _ <- lists:seq(1, N)],
     {return, {rpc_multi, Rpcs, St#{ConnId => 1}}}.
+
+
+%% @doc test mtproto_proxy_app:config_change/3
+config_change_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
+config_change_case({post, Cfg}) ->
+    stop_single(Cfg);
+config_change_case(Cfg) when is_list(Cfg) ->
+    %% test "max_connections"
+    MaxConnsBefore = [{Listener, proplists:get_value(max_connections, Opts)}
+                      || {Listener, Opts} <- mtproto_proxy_app:mtp_listeners()],
+    NewMaxConns = 10,
+    ok = mtproto_proxy_app:config_change([{max_connections, NewMaxConns}], [], []),
+    MaxConnsAfter = [{Listener, proplists:get_value(max_connections, Opts)}
+                     || {Listener, Opts} <- mtproto_proxy_app:mtp_listeners()],
+    ?assertNotEqual(MaxConnsBefore, MaxConnsAfter),
+    ?assert(lists:all(fun({_Listener, MaxConns}) ->
+                              MaxConns == NewMaxConns
+                      end, MaxConnsAfter),
+            MaxConnsAfter),
+
+    %% test downstream_socket_buffer_size
+    GetBufferSizes =
+        fun() ->
+                lists:map(
+                  fun({_, Pid, worker, [mtp_down_conn]}) ->
+                          %% This is hacky and may brake in future erlang releases
+                          {links, Links} = process_info(Pid, links),
+                          [Port] = [L || L <- Links, is_port(L)],
+                          {ok, [{buffer, BufSize}]} = inet:getopts(Port, [buffer]),
+                          {Pid, BufSize}
+                  end, supervisor:which_children(mtp_down_conn_sup))
+        end,
+    BufSizesBefore = GetBufferSizes(),
+    NewBufSize = 512,
+    ok = mtproto_proxy_app:config_change([{downstream_socket_buffer_size, NewBufSize}], [], []),
+    BufSizesAfter = GetBufferSizes(),
+    ?assertNotEqual(BufSizesBefore, BufSizesAfter),
+    ?assert(lists:all(fun({_Conn, BufSize}) ->
+                              BufSize == NewBufSize
+                      end, BufSizesAfter),
+           BufSizesAfter),
+
+    %% test ports
+    PortsBefore = mtproto_proxy_app:running_ports(),
+    ?assertMatch([#{name := _,
+                    listen_ip := _,
+                    port := _,
+                    secret := _,
+                    tag := _}], PortsBefore),
+    ok = mtproto_proxy_app:config_change([{ports, []}], [], []),
+    ?assertEqual([], mtproto_proxy_app:running_ports()),
+    ok = mtproto_proxy_app:config_change([{ports, PortsBefore}], [], []),
+    ?assertEqual(PortsBefore, mtproto_proxy_app:running_ports()),
+    ok.
 
 %% TODO: send a lot, not read, and then close - assert connection IDs are cleaned up
 

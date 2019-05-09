@@ -16,7 +16,8 @@
          upstream_closed/2,
          shutdown/1,
          send/2,
-         ack/3]).
+         ack/3,
+         set_config/3]).
 -ifdef(TEST).
 -export([get_middle_key/1]).
 -endif.
@@ -93,6 +94,10 @@ send(Conn, Data) ->
 ack(Conn, Count, Size) ->
     gen_server:cast(Conn, {ack, self(), Count, Size}).
 
+-spec set_config(handle(), atom(), any()) -> {ok, OldValue :: any()} | ignored.
+set_config(Conn, Option, Value) ->
+    gen_server:call(Conn, {set_config, Option, Value}).
+
 init([Pool, DcId]) ->
     self() ! do_connect,
     {ok, #state{pool = Pool,
@@ -100,7 +105,20 @@ init([Pool, DcId]) ->
 
 handle_call({send, Data}, {Upstream, _}, State) ->
     {Res, State1} = handle_send(Data, Upstream, State),
-    {reply, Res, State1}.
+    {reply, Res, State1};
+handle_call({set_config, Name, Value}, _From, State) ->
+    Result =
+        case Name of
+            downstream_socket_buffer_size when is_integer(Value),
+                                               Value >= 512 ->
+                {ok, [{buffer, OldSize}]} = inet:getopts(State#state.sock, [buffer]),
+                ok = inet:setopts(State#state.sock, [{buffer, Value}]),
+                {ok, OldSize};
+            _ ->
+                lager:warning("set_config ~p=~p ignored", [Name, Value]),
+                ignored
+        end,
+    {reply, Result, State}.
 
 handle_cast({ack, Upstream, Count, Size}, State) ->
     {noreply, handle_ack(Upstream, Count, Size, State)};
@@ -111,7 +129,6 @@ handle_cast({upstream_closed, Upstream}, State) ->
     {noreply, St};
 handle_cast(shutdown, State) ->
     {stop, shutdown, State}.
-
 
 handle_info({tcp, Sock, Data}, #state{sock = Sock, dc_id = DcId} = S) ->
     mtp_metric:count_inc([?APP, received, downstream, bytes], byte_size(Data), #{labels => [DcId]}),

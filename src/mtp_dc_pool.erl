@@ -26,6 +26,7 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
+-export_type([status/0]).
 
 -define(SERVER, ?MODULE).
 -define(APP, mtproto_proxy).
@@ -34,6 +35,11 @@
 -type upstream() :: mtp_handler:handle().
 -type downstream() :: mtp_down_conn:handle().
 -type ds_store() :: psq:psq().
+-type status() :: #{n_downstreams := non_neg_integer(),
+                    n_upstreams := non_neg_integer(),
+                    min := non_neg_integer(),
+                    max := non_neg_integer(),
+                    dc_id := mtp_config:dc_id()}.
 
 -record(state,
         {dc_id :: mtp_config:dc_id(),
@@ -76,6 +82,7 @@ add_connection(Pool) ->
 ack_connected(Pool, Downstream) ->
     gen_server:cast(Pool, {connected, Downstream}).
 
+-spec status(pid()) -> status().
 status(Pool) ->
     gen_server:call(Pool, status).
 
@@ -97,7 +104,8 @@ handle_call(add_connection, _From, State) ->
     State1 = connect(State),
     {reply, ok, State1};
 handle_call(status, _From, #state{downstreams = Ds,
-                                  upstreams = Us} = State) ->
+                                  upstreams = Us,
+                                  dc_id = DcId} = State) ->
     {NDowns, NUps, Min, Max} =
         ds_fold(
           fun(_Pid, N, {NDowns, NUps, Min, Max}) ->
@@ -106,7 +114,8 @@ handle_call(status, _From, #state{downstreams = Ds,
     {reply, #{n_downstreams => NDowns,
               n_upstreams => NUps,
               min => Min,
-              max => Max}, State}.
+              max => Max,
+              dc_id => DcId}, State}.
 
 handle_cast({return, Upstream}, State) ->
     {noreply, handle_return(Upstream, State)};
