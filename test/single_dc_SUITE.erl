@@ -151,8 +151,8 @@ downstream_size_backpressure_case({pre, Cfg}) ->
     %% Disable upstream healthchecks
     set_env([{upstream_healthchecks, []}], Cfg1);
 downstream_size_backpressure_case({post, Cfg}) ->
-    reset_env(Cfg),
-    stop_single(Cfg);
+    stop_single(Cfg),
+    reset_env(Cfg);
 downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
     DcId = ?config(dc_id, Cfg),
     Host = ?config(mtp_host, Cfg),
@@ -213,8 +213,8 @@ downstream_qlen_backpressure_case({pre, Cfg}) ->
                     {upstream_healthchecks, []}], Cfg),
     setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{rpc_handler => mtp_test_cmd_rpc}, Cfg1);
 downstream_qlen_backpressure_case({post, Cfg}) ->
-    reset_env(Cfg),
-    stop_single(Cfg);
+    stop_single(Cfg),
+    reset_env(Cfg);
 downstream_qlen_backpressure_case(Cfg) when is_list(Cfg) ->
     DcId = ?config(dc_id, Cfg),
     Host = ?config(mtp_host, Cfg),
@@ -327,7 +327,6 @@ setup_single(Name, MtpPort, DcCfg0, Cfg) ->
     application:load(mtproto_proxy),
     Cfg1 = set_env([{ports, Listeners}], Cfg),
     {ok, DcCfg} = mtp_test_datacenter:start_dc(PubKey, DcConf, DcCfg0),
-    application:load(mtproto_proxy),
     {ok, _} = application:ensure_all_started(mtproto_proxy),
     [{dc_id, DcId},
      {mtp_host, Ip},
@@ -340,6 +339,7 @@ stop_single(Cfg) ->
     DcCfg = ?config(dc_conf, Cfg),
     MetricPid = ?config(metric, Cfg),
     ok = application:stop(mtproto_proxy),
+    ok = application:unload(mtproto_proxy),
     {ok, _} = mtp_test_datacenter:stop_dc(DcCfg),
     gen_server:stop(MetricPid),
     Cfg.
@@ -357,7 +357,12 @@ set_env(Env, Cfg) ->
              end,
              {K, OldV}
          end || {K, V} <- Env],
-    [{mtp_env, OldEnv} | Cfg].
+    case proplists:get_value(mtp_env, Cfg) of
+        undefined ->
+            [{mtp_env, OldEnv} | Cfg];
+        L ->
+            [{mtp_env, OldEnv ++ L} | Cfg]
+    end.
 
 reset_env(Cfg) ->
     OldEnv = ?config(mtp_env, Cfg),
