@@ -16,6 +16,7 @@ Features
 * Very high performance - can handle tens of thousands connections! Scales to all CPU cores.
 * Supports multiplexing (Many connections Client -> Proxy are wrapped to small amount of
   connections Proxy -> Telegram Server)
+* Protection from [replay attacks](https://habr.com/ru/post/452144/) used to detect proxies in some countries
 * Small codebase compared to official one
 * A lots of metrics could be exported (optional)
 
@@ -243,6 +244,30 @@ You should disable all protocols other than `mtp_secure` by providing `allowed_p
       <..>
 ```
 
+### Tune resource consumption
+
+If your server have low amount of RAM, try to set
+
+```erlang
+{upstream_socket_buffer_size, 5120},
+{downstream_socket_buffer_size, 51200},
+{replay_checks_enabled, []},
+```
+
+this may make proxy slower, it can start consume more CPU, will be vulnerable to replay attacks,
+but will use less RAM.
+
+If your server have lots of RAM, you can make it faster (users will get higher uppload/download speed),
+it will use less CPU and will be better protected from replay attacks, but will use more RAM:
+
+```erlang
+{upstream_socket_buffer_size, 20480},
+{downstream_socket_buffer_size, 512000},
+{replay_checks_enabled, [mtp_session_storage]},
+{replay_check_session_storage_opts,
+  #{max_memory_mb => 2048,
+    max_age_minutes => 1440}},
+```
 
 Helpers
 -------
