@@ -12,7 +12,8 @@
          packet_too_large_case/1,
          downstream_size_backpressure_case/1,
          downstream_qlen_backpressure_case/1,
-         config_change_case/1
+         config_change_case/1,
+         replay_attack_case/1
         ]).
 
 -export([set_env/2,
@@ -307,6 +308,36 @@ config_change_case(Cfg) when is_list(Cfg) ->
     ok = mtproto_proxy_app:config_change([{ports, PortsBefore}], [], []),
     ?assertEqual(PortsBefore, mtproto_proxy_app:running_ports()),
     ok.
+
+
+%% @doc test replay attack protection.
+%% Attempts to connect with the same 1st 64-byte packet should be rejected.
+replay_attack_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
+replay_attack_case({post, Cfg}) ->
+    stop_single(Cfg);
+replay_attack_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    Seed = crypto:strong_rand_bytes(58),
+    ErrCount = fun() ->
+                       mtp_test_metric:get_tags(
+                         count, [?APP, protocol_error, total], [replay_session_detected])
+               end,
+    ?assertEqual(not_found, ErrCount()),
+    Cli1 = mtp_test_client:connect(Host, Port, Seed, Secret, DcId, mtp_secure),
+    _Cli1_1 = mtp_test_client:send(crypto:strong_rand_bytes(64), Cli1),
+    ?assertEqual(not_found, ErrCount()),
+    Cli2 = mtp_test_client:connect(Host, Port, Seed, Secret, DcId, mtp_secure),
+    ?assertEqual(
+       ok, mtp_test_metric:wait_for_value(
+             count, [?APP, protocol_error, total], [replay_session_detected], 1, 5000),
+       {mtp_session_storage:status(),
+        sys:get_state(mtp_test_metric)}),
+    ?assertEqual(1, ErrCount()),
+    ?assertEqual({error, closed}, mtp_test_client:recv_packet(Cli2, 1000)).
 
 %% TODO: send a lot, not read, and then close - assert connection IDs are cleaned up
 

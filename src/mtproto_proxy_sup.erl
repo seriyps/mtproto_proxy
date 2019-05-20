@@ -52,6 +52,8 @@ init([]) ->
                 type => supervisor,
                 start => {mtp_dc_pool_sup, start_link, []}},
               #{id => mtp_config,
-                start => {mtp_config, start_link, []}}
+                start => {mtp_config, start_link, []}},
+              #{id => mtp_session_storage,
+                start => {mtp_session_storage, start_link, []}}
              ],
     {ok, {SupFlags, Childs}}.

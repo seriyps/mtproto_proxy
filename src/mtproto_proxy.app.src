@@ -59,7 +59,29 @@
         {allowed_protocols, [mtp_abridged, mtp_intermediate, mtp_secure]},
 
         {init_dc_connections, 2},
-        {clients_per_dc_connection, 300}
+        {clients_per_dc_connection, 300},
+
+        %% List of enabled replay-attack checks. See
+        %% https://habr.com/ru/post/452144/
+        {replay_checks_enabled, [mtp_session_storage]},
+
+        %% Options for `mtp_session_storage` replay attack check
+        %% Those settings are not precise! They are checked not in realtime, but
+        %% once per minute.
+        {replay_check_session_storage_opts,
+         #{%% Start to remove oldest items if there are more than max_items
+           %% records in the storage
+           max_items => 4000000,
+           %% Start to remove oldest items if storage occupies more than
+           %% `max_memory_mb` megabytes of memory
+           %% One session uses ~130-150bytes on 64bit linux;
+           %% 1Gb will be enough to store ~8mln sessions, which is
+           %% 24 hours of ~90 connections per second
+           max_memory_mb => 512,
+           %% Remove items used for the last time more than `max_age_minutes`
+           %% minutes ago.
+           %% Less than 10 minutes doesn't make much sense
+           max_age_minutes => 360}}
 
         %% Should be module with function `notify/4' exported.
         %% See mtp_metric:notify/4 for details

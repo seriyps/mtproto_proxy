@@ -2,6 +2,7 @@
 -module(mtp_test_client).
 
 -export([connect/5,
+         connect/6,
          send/2,
          recv_packet/2,
          recv_all/2,
@@ -16,13 +17,17 @@
 -type tcp_error() :: inet:posix() | closed.  % | timeout.
 
 connect(Host, Port, Secret, DcId, Protocol) ->
+    Seed = crypto:strong_rand_bytes(58),
+    connect(Host, Port, Seed, Secret, DcId, Protocol).
+
+connect(Host, Port, Seed, Secret, DcId, Protocol) ->
     Opts = [{packet, raw},
             {mode, binary},
             {active, false},
             {buffer, 1024},
             {send_timeout, 5000}],
     {ok, Sock} = gen_tcp:connect(Host, Port, Opts, 1000),
-    {Header, _, _, CryptoLayer} = mtp_obfuscated:client_create(Secret, Protocol, DcId),
+    {Header, _, _, CryptoLayer} = mtp_obfuscated:client_create(Seed, Secret, Protocol, DcId),
     ok = gen_tcp:send(Sock, Header),
     PacketLayer = Protocol:new(),
     Codec = mtp_codec:new(mtp_obfuscated, CryptoLayer,

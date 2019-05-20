@@ -244,6 +244,7 @@ handle_upstream_data(<<Header:64/binary, Rest/binary>>, #state{stage = init, sta
                                                                secret = Secret, listener = Listener} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
+            maybe_check_replay(Header),
             mtp_metric:count_inc([?APP, protocol_ok, total],
                                  1, #{labels => [Listener, PacketLayerMod]}),
             PacketCodec = PacketLayerMod:new(),
@@ -262,6 +263,16 @@ handle_upstream_data(Bin, #state{stage = init, stage_state = <<>>} = S) ->
     {ok, S#state{stage_state = Bin}};
 handle_upstream_data(Bin, #state{stage = init, stage_state = Buf} = S) ->
     handle_upstream_data(<<Buf/binary, Bin/binary>> , S#state{stage_state = <<>>}).
+
+maybe_check_replay(Packet) ->
+    %% Check for session replay attack: attempt to connect with the same 1st 64byte packet
+    case lists:member(mtp_session_storage, application:get_env(?APP, replay_checks_enabled, [])) of
+        true ->
+            (new == mtp_session_storage:check_add(Packet)) orelse
+                error({protocol_error, replay_session_detected, Packet});
+        false ->
+            ok
+    end.
 
 
 up_send(Packet, #state{stage = tunnel,
