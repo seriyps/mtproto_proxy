@@ -128,7 +128,7 @@ code_change(_OldVsn, State, _Extra) ->
 fingerprint(<<_:8/binary, KeyIV:(32 + 16)/binary, _:8/binary>>) ->
     %% It would be better to use whole 64b packet as fingerprint, but will use only
     %% 48b Key + IV part to save some space.
-    KeyIV.
+    binary:copy(KeyIV).
 
 bucket(Timestamp) ->
     Timestamp div ?HISTOGRAM_BUCKET_SIZE.
