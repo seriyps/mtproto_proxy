@@ -130,7 +130,7 @@ config_changed(Action, ports, Ports)  when Action == new; Action == changed ->
     ToStop = ordsets:subtract(RanchPorts, NewPorts),
     ToStart = ordsets:subtract(NewPorts, RanchPorts),
     lists:foreach(fun stop_proxy/1, ToStop),
-    [{ok, _} = mtproto_proxy_app:start_proxy(Conf) || Conf <- ToStart],
+    [{ok, _} = start_proxy(Conf) || Conf <- ToStart],
     ok;
 config_changed(Action, K, V) ->
     %% Most of the other config options are applied automatically without extra work
