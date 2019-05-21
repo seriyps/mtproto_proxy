@@ -10,7 +10,10 @@
 %% Application callbacks
 -export([start/2, prep_stop/1, stop/1, config_change/3]).
 -export([mtp_listeners/0, running_ports/0, start_proxy/1]).
+
 -define(APP, mtproto_proxy).
+
+-include_lib("hut/include/hut.hrl").
 
 -type proxy_port() :: #{name := any(),
                         port := inet:port_number(),
@@ -134,15 +137,15 @@ config_changed(Action, ports, Ports)  when Action == new; Action == changed ->
     ok;
 config_changed(Action, K, V) ->
     %% Most of the other config options are applied automatically without extra work
-    lager:info("Config ~p ~p to ~p ignored", [K, Action, V]),
+    ?log(info, "Config ~p ~p to ~p ignored", [K, Action, V]),
     ok.
 
 
 -ifdef(TEST).
 report(Fmt, Args) ->
-    lager:debug(Fmt, Args).
+    ?log(debug, Fmt, Args).
 -else.
 report(Fmt, Args) ->
     io:format(Fmt, Args),
-    lager:info(Fmt, Args).
+    ?log(info, Fmt, Args).
 -endif.

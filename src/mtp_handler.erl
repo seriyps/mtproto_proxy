@@ -22,6 +22,8 @@
 
 -type handle() :: pid().
 
+-include_lib("hut/include/hut.hrl").
+
 -define(MAX_SOCK_BUF_SIZE, 1024 * 50).    % Decrease if CPU is cheaper than RAM
 -define(MAX_UP_INIT_BUF_SIZE, 1024 * 1024).     %1mb
 
@@ -93,7 +95,7 @@ init({Socket, Transport, [Name, Secret, Tag]}) ->
     mtp_metric:count_inc([?APP, in_connection, total], 1, #{labels => [Name]}),
     case Transport:peername(Socket) of
         {ok, {Ip, Port}} ->
-            lager:info("~s: new connection ~s:~p", [Name, inet:ntoa(Ip), Port]),
+            ?log(info, "~s: new connection ~s:~p", [Name, inet:ntoa(Ip), Port]),
             {TimeoutKey, TimeoutDefault} = state_timeout(init),
             Timer = gen_timeout:new(
                       #{timeout => {env, ?APP, TimeoutKey, TimeoutDefault}}),
@@ -110,7 +112,7 @@ init({Socket, Transport, [Name, Secret, Tag]}) ->
             {ok, State};
         {error, Reason} ->
             mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Name]}),
-            lager:info("Can't read peername: ~p", [Reason]),
+            ?log(info, "Can't read peername: ~p", [Reason]),
             {stop, error}
     end.
 
@@ -124,14 +126,14 @@ handle_cast({proxy_ans, Down, Data}, #state{down = Down} = S) ->
     ok = mtp_down_conn:ack(Down, 1, iolist_size(Data)),
     maybe_check_health(bump_timer(S1));
 handle_cast({close_ext, Down}, #state{down = Down, sock = USock, transport = UTrans} = S) ->
-    lager:debug("asked to close connection by downstream"),
+    ?log(debug, "asked to close connection by downstream"),
     ok = UTrans:close(USock),
     {stop, normal, S#state{down = undefined}};
 handle_cast({simple_ack, Down, Confirm}, #state{down = Down} = S) ->
-    lager:info("Simple ack: ~p, ~p", [Down, Confirm]),
+    ?log(info, "Simple ack: ~p, ~p", [Down, Confirm]),
     {noreply, S};
 handle_cast(Other, State) ->
-    lager:warning("Unexpected msg ~p", [Other]),
+    ?log(warning, "Unexpected msg ~p", [Other]),
     {noreply, State}.
 
 handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
@@ -146,18 +148,18 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
             %% Consider checking health here as well
             {noreply, bump_timer(S1)};
         {error, Reason} ->
-            lager:info("handle_data error ~p", [Reason]),
+            ?log(info, "handle_data error ~p", [Reason]),
             {stop, normal, S}
     catch error:{protocol_error, Type, Extra} ->
             mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Type]}),
-            lager:warning("protocol_error ~p ~p", [Type, Extra]),
+            ?log(warning, "protocol_error ~p ~p", [Type, Extra]),
             {stop, normal, maybe_close_down(S)}
     end;
 handle_info({tcp_closed, Sock}, #state{sock = Sock} = S) ->
-    lager:debug("upstream sock closed"),
+    ?log(debug, "upstream sock closed"),
     {stop, normal, maybe_close_down(S)};
 handle_info({tcp_error, Sock, Reason}, #state{sock = Sock} = S) ->
-    lager:warning("upstream sock error: ~p", [Reason]),
+    ?log(warning, "upstream sock error: ~p", [Reason]),
     {stop, normal, maybe_close_down(S)};
 
 handle_info(timeout, #state{timer = Timer, timer_state = TState, listener = Listener} = S) ->
@@ -165,7 +167,7 @@ handle_info(timeout, #state{timer = Timer, timer_state = TState, listener = List
         true when TState == stop;
                   TState == init ->
             mtp_metric:count_inc([?APP, inactive_timeout, total], 1, #{labels => [Listener]}),
-            lager:info("inactive timeout in state ~p", [TState]),
+            ?log(info, "inactive timeout in state ~p", [TState]),
             {stop, normal, S};
         true when TState == hibernate ->
             mtp_metric:count_inc([?APP, inactive_hibernate, total], 1, #{labels => [Listener]}),
@@ -175,7 +177,7 @@ handle_info(timeout, #state{timer = Timer, timer_state = TState, listener = List
             {noreply, S#state{timer = Timer1}}
     end;
 handle_info(Other, S) ->
-    lager:warning("Unexpected msg ~p", [Other]),
+    ?log(warning, "Unexpected msg ~p", [Other]),
     {noreply, S}.
 
 terminate(_Reason, #state{started_at = Started, listener = Listener} = S) ->
@@ -185,7 +187,7 @@ terminate(_Reason, #state{started_at = Started, listener = Listener} = S) ->
     mtp_metric:histogram_observe(
       [?APP, session_lifetime, seconds],
       erlang:convert_time_unit(Lifetime, millisecond, native), #{labels => [Listener]}),
-    lager:info("terminate ~p", [_Reason]),
+    ?log(info, "terminate ~p", [_Reason]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -280,7 +282,7 @@ up_send(Packet, #state{stage = tunnel,
                        sock = Sock,
                        transport = Transport,
                        listener = Listener} = S) ->
-    %% lager:debug(">Up: ~p", [Packet]),
+    %% ?log(debug, ">Up: ~p", [Packet]),
     {Encoded, UpCodec1} = mtp_codec:encode_packet(Packet, UpCodec),
     mtp_metric:rt([?APP, upstream_send_duration, seconds],
               fun() ->
@@ -295,14 +297,14 @@ up_send(Packet, #state{stage = tunnel,
                                   mtp_metric:count_inc(
                                     [?APP, upstream_send_error, total], 1,
                                     #{labels => [Listener, Reason]}),
-                              lager:warning("Upstream send error: ~p", [Reason]),
+                              ?log(warning, "Upstream send error: ~p", [Reason]),
                               throw({stop, normal, S})
                       end
               end, #{labels => [Listener]}),
     {ok, S#state{codec = UpCodec1}}.
 
 down_send(Packet, #state{down = Down} = S) ->
-    %% lager:debug(">Down: ~p", [Packet]),
+    %% ?log(debug, ">Down: ~p", [Packet]),
     case mtp_down_conn:send(Down, Packet) of
         ok ->
             {ok, S};
@@ -316,7 +318,7 @@ handle_unknown_upstream(#state{down = Down, sock = USock, transport = UTrans} = 
     ok = UTrans:close(USock),
     receive
         {'$gen_cast', {close_ext, Down}} ->
-            lager:debug("asked to close connection by downstream"),
+            ?log(debug, "asked to close connection by downstream"),
             throw({stop, normal, S#state{down = undefined}})
     after 0 ->
             throw({stop, got_unknown_upstream, S})
@@ -370,7 +372,7 @@ check_health() ->
 do_check_health([{qlen, Limit} | _], #{message_queue_len := QLen} = Health) when QLen > Limit ->
     mtp_metric:count_inc([?APP, healthcheck, total], 1,
                          #{labels => [message_queue_len]}),
-    lager:warning("Upstream too large queue_len=~w, health=~p", [QLen, Health]),
+    ?log(warning, "Upstream too large queue_len=~w, health=~p", [QLen, Health]),
     overflow;
 do_check_health([{gc, Limit} | Other], #{total_mem := TotalMem}) when TotalMem > Limit ->
     %% Maybe it doesn't makes sense to do GC if queue len is more than, eg, 50?
@@ -383,8 +385,7 @@ do_check_health([{total_mem, Limit} | _Other], #{total_mem := TotalMem} = Health
       TotalMem > Limit ->
     mtp_metric:count_inc([?APP, healthcheck, total], 1,
                          #{labels => [total_memory]}),
-    lager:warning("Process too large total_mem=~p, health=~p",
-                  [TotalMem / 1024, Health]),
+    ?log(warning, "Process too large total_mem=~p, health=~p", [TotalMem / 1024, Health]),
     overflow;
 do_check_health([_Ok | Other], Health) ->
     do_check_health(Other, Health);

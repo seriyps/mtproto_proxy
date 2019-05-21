@@ -1,5 +1,6 @@
 {"1.1.0",
 [{<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
+ {<<"hut">>,{pkg,<<"hut">>,<<"1.3.0">>},0},
  {<<"lager">>,{pkg,<<"lager">>,<<"3.6.3">>},0},
  {<<"psq">>,
   {git,"https://github.com/eryx67/psq.git",
@@ -9,6 +10,7 @@
 [
 {pkg_hash,[
  {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
+ {<<"hut">>, <<"71F2F054E657C03F959CF1ACC43F436EA87580696528CA2A55C8AFB1B06C85E7">>},
  {<<"lager">>, <<"FE78951D174616273F87F0DBC3374D1430B1952E5EFC4E1C995592D30A207294">>},
  {<<"ranch">>, <<"9583F47160CA62AF7F8D5DB11454068EAA32B56EEADF984D4F46E61A076DF5F2">>}]}
 ].

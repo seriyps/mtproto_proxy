@@ -231,11 +231,19 @@ ask_for_close(Id) ->
 gen_rpc_close([], _ConnId, St) ->
     {close, St}.
 
+-ifdef(OTP_RELEASE).
+disable_log() ->
+    logger:set_primary_config(level, critical).
+-else.
+disable_log() ->
+    ok.
+-endif.
 
 %% Setup / teardown
 setup(DcCfg0) ->
     application:ensure_all_started(lager),
-    lager:set_loglevel(lager_console_backend, critical),
+    lager:set_loglevel(lager_console_backend, critical), %XXX lager-specific
+    disable_log(),
     {ok, Pid} = mtp_test_metric:start_link(),
     PubKey = crypto:strong_rand_bytes(128),
     DcId = ?DC_ID,

@@ -28,6 +28,8 @@
          terminate/2, code_change/3]).
 -export_type([status/0]).
 
+-include_lib("hut/include/hut.hrl").
+
 -define(SERVER, ?MODULE).
 -define(APP, mtproto_proxy).
 -define(BURST_MAX, 10).
@@ -181,14 +183,12 @@ handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
                 {Pid, DsM1} ->
                     Pending1 = lists:delete(Pid, Pending),
                     Ds1 = ds_remove(Pid, Ds),
-                    lager:error("Downstream=~p is down. reason=~p",
-                                [Pid, Reason]),
+                    ?log(error, "Downstream=~p is down. reason=~p", [Pid, Reason]),
                     St#state{pending_downstreams = Pending1,
                              downstreams = Ds1,
                              downstream_monitors = DsM1};
                 _ ->
-                    lager:error("Unexpected DOWN. ref=~p, pid=~p, reason=~p",
-                                [MonRef, Pid, Reason]),
+                    ?log(error, "Unexpected DOWN. ref=~p, pid=~p, reason=~p", [MonRef, Pid, Reason]),
                     St
             end
     end.
@@ -289,7 +289,7 @@ ds_return(Pid, St) ->
         {ok, St1} ->
             St1;
         undefined ->
-            lager:warning("Attempt to release unknown connection ~p", [Pid]),
+            ?log(warning, "Attempt to release unknown connection ~p", [Pid]),
             St
     end.
 

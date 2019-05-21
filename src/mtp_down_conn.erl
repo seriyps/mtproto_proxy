@@ -27,6 +27,8 @@
          terminate/2, code_change/3]).
 -export_type([handle/0, upstream_opts/0]).
 
+-include_lib("hut/include/hut.hrl").
+
 -define(SERVER, ?MODULE).
 -define(APP, mtproto_proxy).
 -define(CONN_TIMEOUT, 10000).
@@ -115,7 +117,7 @@ handle_call({set_config, Name, Value}, _From, State) ->
                 ok = inet:setopts(State#state.sock, [{buffer, Value}]),
                 {ok, OldSize};
             _ ->
-                lager:warning("set_config ~p=~p ignored", [Name, Value]),
+                ?log(warning, "set_config ~p=~p ignored", [Name, Value]),
                 ignored
         end,
     {reply, Result, State}.
@@ -145,16 +147,16 @@ handle_info(do_connect, #state{dc_id = DcId} = State) ->
         {ok, St1} = connect(DcId, State),
         {noreply, St1}
     catch ?WITH_STACKTRACE(Class, Reason, Stack)
-            lager:error("Down connect error: ~s",
-                        [lager:pr_stacktrace(Stack, {Class, Reason})]),
+            ?log(error, "Down connect error: ~s",
+                 [lager:pr_stacktrace(Stack, {Class, Reason})]), %XXX lager-specific
             erlang:send_after(300, self(), do_connect),
             {noreply, State}
     end.
 
 terminate(_Reason, #state{upstreams = Ups}) ->
     %% Should I do this or dc_pool? Maybe only when reason is 'normal'?
-    lager:warning("Downstream terminates with reason ~p; len(upstreams)=~p",
-                  [_Reason, map_size(Ups)]),
+    ?log(warning, "Downstream terminates with reason ~p; len(upstreams)=~p",
+         [_Reason, map_size(Ups)]),
     Self = self(),
     lists:foreach(
       fun(Upstream) ->
@@ -172,7 +174,7 @@ handle_send(Data, Upstream, #state{upstreams = Ups,
             Packet = mtp_rpc:encode_packet({data, Data}, {UpstreamStatic, ProxyAddr}),
             down_send(Packet, St);
         _ ->
-            lager:warning("Upstream=~p not found", [Upstream]),
+            ?log(warning, "Upstream=~p not found", [Upstream]),
             {{error, unknown_upstream}, St}
     end.
 
@@ -185,7 +187,7 @@ handle_upstream_new(Upstream, Opts, #state{upstreams = Ups,
     UpsStatic = {ConnId, iolist_to_binary(mtp_rpc:encode_ip_port(Ip, Port)), AdTag},
     Ups1 = Ups#{Upstream => {UpsStatic, 0, 0}},
     UpsRev1 = UpsRev#{ConnId => Upstream},
-    lager:debug("New upstream=~p conn_id=~p", [Upstream, ConnId]),
+    ?log(debug, "New upstream=~p conn_id=~p", [Upstream, ConnId]),
     St#state{upstreams = Ups1,
              upstreams_rev = UpsRev1}.
 
@@ -203,7 +205,7 @@ handle_upstream_closed(Upstream, #state{upstreams = Ups,
             down_send(Packet, St2);
         error ->
             %% It happens when we get rpc_close_ext
-            lager:info("Unknown upstream ~p", [Upstream]),
+            ?log(info, "Unknown upstream ~p", [Upstream]),
             {ok, St}
     end.
 
@@ -253,7 +255,7 @@ handle_rpc({close_ext, ConnId}, St) ->
             St2#state{upstreams = Ups1,
                       upstreams_rev = UpsRev1};
         error ->
-            lager:warning("Unknown upstream ~p", [ConnId]),
+            ?log(warning, "Unknown upstream ~p", [ConnId]),
             St1
     end;
 handle_rpc({simple_ack, ConnId, Confirm}, S) ->
@@ -261,7 +263,7 @@ handle_rpc({simple_ack, ConnId, Confirm}, S) ->
 
 -spec down_send(iodata(), #state{}) -> {ok, #state{}}.
 down_send(Packet, #state{sock = Sock, codec = Codec, dc_id = DcId} = St) ->
-    %% lager:debug("Up>Down: ~w", [Packet]),
+    %% ?log(debug, "Up>Down: ~w", [Packet]),
     {Encoded, Codec1} = mtp_codec:encode_packet(Packet, Codec),
     mtp_metric:rt(
       [?APP, downstream_send_duration, seconds],
@@ -285,7 +287,7 @@ up_send(Packet, ConnId, #state{upstreams_rev = UpsRev} = St) ->
                     St
             end;
         error ->
-            lager:warning("Unknown connection_id=~w", [ConnId]),
+            ?log(warning, "Unknown connection_id=~w", [ConnId]),
             %% WHY!!!?
             %% ClosedPacket = mtp_rpc:encode_packet(remote_closed, ConnId),
             %% {ok, St1} = down_send(ClosedPacket, St),
@@ -393,7 +395,7 @@ connect(DcId, S) ->
             mtp_metric:count_inc([?APP, out_connect_ok, total], 1,
                                  #{labels => [DcId]}),
             AddrStr = inet:ntoa(Host),
-            lager:info("~s:~p: TCP connected", [AddrStr, Port]),
+            ?log(info, "~s:~p: TCP connected", [AddrStr, Port]),
             down_handshake1(S#state{sock = Sock,
                                     netloc = {Host, Port}});
         {error, Reason} = Err ->
@@ -489,7 +491,7 @@ down_handshake3(Pkt, #state{stage_state = PrevSenderPid, pool = Pool,
     {handshake, _SenderPid, PeerPid} = mtp_rpc:decode_handshake(Pkt),
     (PeerPid == PrevSenderPid) orelse error({wrong_sender_pid, PeerPid}),
     ok = mtp_dc_pool:ack_connected(Pool, self()),
-    lager:info("~s:~w: handshake complete", [inet:ntoa(Addr), Port]),
+    ?log(info, "~s:~w: handshake complete", [inet:ntoa(Addr), Port]),
     {ok, S#state{stage = tunnel,
                  stage_state = undefined}}.
 

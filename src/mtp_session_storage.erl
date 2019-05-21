@@ -23,6 +23,7 @@
          terminate/2, code_change/3]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("hut/include/hut.hrl").
 
 -define(DATA_TAB, ?MODULE).
 -define(HISTOGRAM_TAB, mtp_session_storage_histogram).
@@ -108,7 +109,7 @@ handle_info(timeout, #state{data_tab = DataTab, histogram_tab = HistTab, clean_t
                                            #{max_age_minutes => 360}),
                 Cleans = clean_storage(DataTab, HistTab, Opts),
                 Remaining = ets:info(DataTab, size),
-                lager:info("storage cleaned: ~p; remaining: ~p", [Cleans, Remaining]),
+                ?log(info, "storage cleaned: ~p; remaining: ~p", [Cleans, Remaining]),
                 gen_timeout:bump(gen_timeout:reset(Timer0));
             false ->
                 gen_timeout:reset(Timer0)

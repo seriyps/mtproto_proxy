@@ -171,14 +171,14 @@ handle_event(info, {tcp_closed, _Sock}, _EventName, _S) ->
 
 hs_send(Packet, #hs_state{transport = Transport, sock = Sock,
                           codec = Codec} = St) ->
-    %% lager:debug("Up>Down: ~w", [Packet]),
+    %% ?log(debug, "Up>Down: ~w", [Packet]),
     {Encoded, Codec1} = mtp_codec:encode_packet(Packet, Codec),
     ok = Transport:send(Sock, Encoded),
     {ok, St#hs_state{codec = Codec1}}.
 
 t_send(Packet, #t_state{transport = Transport, sock = Sock,
                         codec = Codec} = St) ->
-    %% lager:debug("Up>Down: ~w", [Packet]),
+    %% ?log(debug, "Up>Down: ~w", [Packet]),
     {Encoded, Codec1} = mtp_codec:encode_packet(Packet, Codec),
     ok = Transport:send(Sock, Encoded),
     {ok, St#t_state{codec = Codec1}}.
