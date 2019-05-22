@@ -103,6 +103,26 @@
         %%   {gc, 409600},        % if connection memory >X - do garbage collection
         %%   {total_mem, 3145728} % if connection memory >X - close connection
         %%  ]},
+
+        %% Downstream backpressure tuning
+        %% Values are configured per downstream connection, so, for example, if
+        %% `clients_per_dc_connection' is 300 and current number of connections
+        %% is 60,000, then there will be 200 downstream connections, each will
+        %% keep reading data from it's socket unless there is 10mb of data or
+        %% 600 packets not yet delivered by it's upstreams to clients
+        %% `*_per_upstream' options are the same, but will be multiplied by the
+        %% number of upstreams currently connected to this downstream
+        %% {downstream_backpressure,
+        %%  #{%% 10mb; if not specified, it's 30kb * clients_per_dc_connection
+        %%    bytes_total => 10485760,
+        %%    %% if not specified, it's 2 * clients_per_dc_connection
+        %%    packets_total => 600,
+        %%    %% integer >= 1024
+        %%    %% if not specified this check is skipped
+        %%    bytes_per_upstream => 51200,         %50kb
+        %%    %% float >= 1
+        %%    %% if not specified this check is skipped
+        %%    packets_per_upstream => 3}}
        ]},
   {modules, []},
 

@@ -119,8 +119,12 @@ config_changed(Action, max_connections, N) when Action == new; Action == changed
                   end, mtp_listeners());
 config_changed(Action, downstream_socket_buffer_size, N) when Action == new; Action == changed ->
     [{ok, _} = mtp_down_conn:set_config(Pid, downstream_socket_buffer_size, N)
-     || {_, Pid, worker, [mtp_down_conn]}
-            <- supervisor:which_children(mtp_down_conn_sup)],
+     || Pid <- downstream_connections()],
+    ok;
+config_changed(Action, downstream_backpressure, BpOpts) when Action == new; Action == changed ->
+    is_map(BpOpts) orelse error(invalid_downstream_backpressure),
+    [{ok, _} = mtp_down_conn:set_config(Pid, downstream_backpressure, BpOpts)
+     || Pid <- downstream_connections()],
     ok;
 %% Since upstream connections are mostly short-lived, live-update doesn't make much difference
 %% config_changed(Action, upstream_socket_buffer_size, N) when Action == new; Action == changed ->
@@ -139,6 +143,9 @@ config_changed(Action, K, V) ->
     %% Most of the other config options are applied automatically without extra work
     ?log(info, "Config ~p ~p to ~p ignored", [K, Action, V]),
     ok.
+
+downstream_connections() ->
+    [Pid || {_, Pid, worker, [mtp_down_conn]} <- supervisor:which_children(mtp_down_conn_sup)].
 
 
 -ifdef(TEST).

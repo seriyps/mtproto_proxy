@@ -34,10 +34,6 @@
 -define(CONN_TIMEOUT, 10000).
 -define(SEND_TIMEOUT, 15000).
 -define(MAX_SOCK_BUF_SIZE, 1024 * 500).    % Decrease if CPU is cheaper than RAM
-%% One slow client can slowdown everyone on the same downstream, but it have
-%% it's own healthchecks
--define(MAX_NON_ACK_COUNT, 300).
--define(MAX_NON_ACK_BYTES, 1024 * 1024 * 6).    % 6MB
 
 -ifndef(OTP_RELEASE).                           % pre-OTP21
 -define(WITH_STACKTRACE(T, R, S), T:R -> S = erlang:get_stacktrace(), ).
@@ -67,6 +63,15 @@
                 overflow_passive = false :: boolean(),
                 non_ack_count = 0 :: non_neg_integer(),
                 non_ack_bytes = 0 :: non_neg_integer(),
+                backpressure_conf :: {
+                  %%ovarall max num non acked packets
+                  non_neg_integer(),
+                  %%ovarall max non acked bytes
+                  non_neg_integer(),
+                  %%max non acked packets per-upstream
+                  non_neg_integer() | float() | undefined,
+                  %%max non-acked bytes per-upstream
+                  non_neg_integer() | undefined},
                 pool :: pid(),
                 dc_id :: mtp_config:dc_id(),
                 netloc :: mtp_config:netloc() | undefined   % telegram server ip:port
@@ -102,25 +107,40 @@ set_config(Conn, Option, Value) ->
 
 init([Pool, DcId]) ->
     self() ! do_connect,
-    {ok, #state{pool = Pool,
+    BpOpts = application:get_env(?APP, downstream_backpressure, #{}),
+    {ok, UpsPerDown} = application:get_env(?APP, clients_per_dc_connection),
+    BackpressureConf = build_backpressure_conf(UpsPerDown, BpOpts),
+    {ok, #state{backpressure_conf = BackpressureConf,
+                pool = Pool,
                 dc_id = DcId}}.
 
 handle_call({send, Data}, {Upstream, _}, State) ->
     {Res, State1} = handle_send(Data, Upstream, State),
     {reply, Res, State1};
 handle_call({set_config, Name, Value}, _From, State) ->
-    Result =
+    {Response, State1} =
         case Name of
             downstream_socket_buffer_size when is_integer(Value),
                                                Value >= 512 ->
                 {ok, [{buffer, OldSize}]} = inet:getopts(State#state.sock, [buffer]),
                 ok = inet:setopts(State#state.sock, [{buffer, Value}]),
-                {ok, OldSize};
+                {{ok, OldSize}, State};
+            downstream_backpressure when is_map(Value) ->
+                {ok, UpsPerDown} = application:get_env(?APP, clients_per_dc_connection),
+                try build_backpressure_conf(UpsPerDown, Value) of
+                    BpConfig ->
+                        {{ok, State#state.backpressure_conf},
+                          State#state{backpressure_conf = BpConfig}}
+                catch Type:Reason ->
+                        ?log(error, "~p: not updating downstream_backpressure: ~p",
+                             [Type, Reason]),
+                        {ignored, State}
+                end;
             _ ->
                 ?log(warning, "set_config ~p=~p ignored", [Name, Value]),
-                ignored
+                {ignored, State}
         end,
-    {reply, Result, State}.
+    {reply, Response, State1}.
 
 handle_cast({ack, Upstream, Count, Size}, State) ->
     {noreply, handle_ack(Upstream, Count, Size, State)};
@@ -299,6 +319,26 @@ up_send(Packet, ConnId, #state{upstreams_rev = UpsRev} = St) ->
 %% Backpressure
 %%
 
+build_backpressure_conf(UpstreamsPerDownstream, BpConf) ->
+    BytesTotal = maps:get(bytes_total, BpConf, UpstreamsPerDownstream * 30 * 1024),
+    PacketsTotal = maps:get(packets_total, BpConf, UpstreamsPerDownstream * 2),
+    BytesPerUpstream = maps:get(bytes_per_upstream, BpConf, undefined),
+    PacketsPerUpstream = maps:get(packets_per_upstream, BpConf, undefined),
+    (is_integer(BytesTotal)
+     andalso (BytesTotal > 1024)
+     andalso is_integer(PacketsTotal)
+     andalso (PacketsTotal > 10))
+        orelse error({invalid_downstream_backpressure, BpConf}),
+    ((undefined == BytesPerUpstream)
+     orelse (is_integer(BytesPerUpstream)
+             andalso BytesPerUpstream >= 1024))
+        orelse error({invalid_bytes_per_upstream, BytesPerUpstream}),
+    ((undefined == PacketsPerUpstream)
+     orelse (is_number(PacketsPerUpstream)
+             andalso PacketsPerUpstream >= 1))
+        orelse error({invalid_bytes_per_upstream, PacketsPerUpstream}),
+    {PacketsTotal, BytesTotal, PacketsPerUpstream, BytesPerUpstream}.
+
 %% Bumb counters of non-acked packets
 non_ack_bump(Upstream, Size, #state{non_ack_count = Cnt,
                                     non_ack_bytes = Oct,
@@ -312,10 +352,24 @@ non_ack_bump(Upstream, Size, #state{non_ack_count = Cnt,
                                              UpsOct + Size}}}).
 
 %% Do we have too much unconfirmed packets?
-is_overflow(#state{non_ack_count = Cnt}) when Cnt > ?MAX_NON_ACK_COUNT ->
-    count;
-is_overflow(#state{non_ack_bytes = Oct}) when Oct > ?MAX_NON_ACK_BYTES ->
-    bytes;
+is_overflow(#state{non_ack_count = Cnt,
+                   backpressure_conf = {MaxCount, _, _, _}}) when Cnt > MaxCount ->
+    count_total;
+is_overflow(#state{non_ack_bytes = Oct,
+                   backpressure_conf = {_, MaxOct, _, _}}) when Oct > MaxOct ->
+    bytes_total;
+is_overflow(#state{non_ack_count = Cnt,
+                   upstreams = Ups,
+                   backpressure_conf = {_, _, MaxPerConCnt, _}}) when
+      is_number(MaxPerConCnt),
+      Cnt > (map_size(Ups) * MaxPerConCnt) ->
+    count_per_upstream;
+is_overflow(#state{non_ack_bytes = Oct,
+                   upstreams = Ups,
+                   backpressure_conf = {_, _, _, MaxPerConOct}}) when
+      is_integer(MaxPerConOct),
+      Oct > (map_size(Ups) * MaxPerConOct) ->
+    bytes_per_upstream;
 is_overflow(_) ->
     false.
 

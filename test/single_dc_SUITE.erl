@@ -150,7 +150,10 @@ packet_too_large_case(Cfg) when is_list(Cfg) ->
 downstream_size_backpressure_case({pre, Cfg}) ->
     Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{rpc_handler => mtp_test_cmd_rpc}, Cfg),
     %% Disable upstream healthchecks
-    set_env([{upstream_healthchecks, []}], Cfg1);
+    set_env([{upstream_healthchecks, []},
+             {downstream_backpressure,
+              #{bytes_total => 6 * 1024 * 1024,
+                packets_total => 1000}}], Cfg1);
 downstream_size_backpressure_case({post, Cfg}) ->
     stop_single(Cfg),
     reset_env(Cfg);
@@ -172,7 +175,7 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
     %% Wait for backpressure-in
     ?assertEqual(
        ok, mtp_test_metric:wait_for_value(
-             count, [?APP, down_backpressure, total], [DcId, bytes], 1, 5000)),
+             count, [?APP, down_backpressure, total], [DcId, bytes_total], 1, 5000)),
     %% Upstream healthcheck should be disabled, otherwise it can interfere
     ?assertEqual(not_found,
                  mtp_test_metric:get_tags(
@@ -193,7 +196,7 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
     {ok, _RecvPackets, Cli2} = mtp_test_client:recv_all(Cli1, 1000),
     ?assertEqual(
        ok, mtp_test_metric:wait_for(
-             count, [?APP, down_backpressure, total], [DcId, bytes],
+             count, [?APP, down_backpressure, total], [DcId, bytes_total],
              fun(V) -> is_integer(V) and (V > 0) end, 5000)),
     ok = mtp_test_client:close(Cli2),
     %% ct:pal("t->p ~p; p->c ~p; diff ~p",
@@ -211,7 +214,10 @@ downstream_qlen_backpressure_case({pre, Cfg}) ->
     %% socket data packet;
     %% Disable upstream healthchecks
     Cfg1 = set_env([{downstream_socket_buffer_size, 1024},
-                    {upstream_healthchecks, []}], Cfg),
+                    {upstream_healthchecks, []},
+                    {downstream_backpressure,
+                     #{bytes_total => 50 * 1024 * 1024,
+                       packets_total => 300}}], Cfg),
     setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{rpc_handler => mtp_test_cmd_rpc}, Cfg1);
 downstream_qlen_backpressure_case({post, Cfg}) ->
     stop_single(Cfg),
@@ -235,7 +241,8 @@ downstream_qlen_backpressure_case(Cfg) when is_list(Cfg) ->
     %% Wait for backpressure-in
     ?assertEqual(
        ok, mtp_test_metric:wait_for_value(
-             count, [?APP, down_backpressure, total], [DcId, count], 1, 5000)),
+             count, [?APP, down_backpressure, total], [DcId, count_total], 1, 5000),
+       sys:get_state(mtp_test_metric)),
     %% Close connection to release backpressure
     ok = mtp_test_client:close(Cli1),
     ?assertEqual(
