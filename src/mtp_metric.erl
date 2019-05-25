@@ -45,11 +45,30 @@ rt(Name, Fun, Extra) ->
 
 
 notify(Type, Name, Value, Extra) ->
-    case application:get_env(?APP, metric_backend) of
-        {ok, Mod} ->
-            Mod:notify(Type, Name, Value, Extra);
-        _ ->
-            false
+    case get_backend() of
+        undefined ->
+            false;
+        Mod ->
+            Mod:notify(Type, Name, Value, Extra)
+    end.
+
+get_backend() ->
+    %% Cache resutl of application:get_env in process dict because it's on the hot path
+    case erlang:get(metric_backend) of
+        undefined ->
+            case application:get_env(?APP, metric_backend) of
+                {ok, Mod} when Mod =/= false;
+                               Mod =/= undefined ->
+                    erlang:put(metric_backend, Mod),
+                    Mod;
+                _ ->
+                    erlang:put(metric_backend, false),
+                    undefined
+            end;
+        false ->
+            undefined;
+        Mod ->
+            Mod
     end.
 
 -spec passive_metrics() -> [{metric_type(), metric_name(), metric_doc(),
@@ -80,8 +99,7 @@ passive_metrics() ->
     [{gauge, [?APP, connections, count],
       "Count of ranch connections",
       [{#{listener => H}, proplists:get_value(all_connections, P)}
-       || {H, P} <- ranch:info(),
-          proplists:get_value(protocol, P) == mtp_handler]}] ].
+       || {H, P} <- mtproto_proxy_app:mtp_listeners()]}] ].
 
 -spec active_metrics() -> [{metric_type(), metric_name(), metric_doc(), Opts}]
                               when
