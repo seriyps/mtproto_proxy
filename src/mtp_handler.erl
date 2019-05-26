@@ -139,10 +139,11 @@ handle_cast({proxy_ans, Down, ?SRV_ERROR = Data}, #state{down = Down, srv_error_
     ok = mtp_down_conn:ack(Down, 1, iolist_size(Data)),
     ?log(warning, "~s: protocol_error srv_error_filtered", [inet:ntoa(Ip)]),
     mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [srv_error_filtered]}),
-    case Filter of
-        first -> S#state{srv_error_filter = off};
-        on -> S
-    end;
+    {noreply,
+     case Filter of
+         first -> S#state{srv_error_filter = off};
+         on -> S
+     end};
 handle_cast({proxy_ans, Down, Data}, #state{down = Down, srv_error_filter = Filter} = S) when Filter =/= off ->
     %% telegram server -> proxy
     %% Normal data packet
