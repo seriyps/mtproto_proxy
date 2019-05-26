@@ -64,11 +64,11 @@ client_create(Seed, Secret, Protocol, DcId) when byte_size(Seed) == 58,
     %% init_up_encrypt/2
     <<_:8/binary, ToRev:(?KEY_LEN + ?IV_LEN)/binary, _/binary>> = Raw,
     <<DecKeySeed:?KEY_LEN/binary, DecIv:?IV_LEN/binary>> = bin_rev(ToRev),
-    DecKey = crypto:hash('sha256', <<DecKeySeed/binary, Secret/binary>>),
+    DecKey = crypto:hash('sha256', <<DecKeySeed:?KEY_LEN/binary, Secret:16/binary>>),
 
     %% init_up_decrypt/2
     <<_:8/binary, EncKeySeed:?KEY_LEN/binary, EncIv:?IV_LEN/binary, _/binary>> = Raw,
-    EncKey = crypto:hash('sha256', <<EncKeySeed/binary, Secret/binary>>),
+    EncKey = crypto:hash('sha256', <<EncKeySeed:?KEY_LEN/binary, Secret:16/binary>>),
 
     Codec = new(EncKey, EncIv, DecKey, DecIv),
     {<<_:56/binary, Encrypted:8/binary>>, Codec1} = encrypt(Raw, Codec),
@@ -138,12 +138,12 @@ init_up_encrypt(Bin, Secret) ->
     Rev = bin_rev(ToRev),
     <<KeySeed:?KEY_LEN/binary, IV:?IV_LEN/binary>> = Rev,
     %% <<_:32/binary, RevIV:16/binary, _/binary>> = Bin,
-    Key = crypto:hash('sha256', <<KeySeed/binary, Secret/binary>>),
+    Key = crypto:hash('sha256', <<KeySeed:?KEY_LEN/binary, Secret:16/binary>>),
     {Key, IV}.
 
 init_up_decrypt(Bin, Secret) ->
     <<_:8/binary, KeySeed:?KEY_LEN/binary, IV:?IV_LEN/binary, _/binary>> = Bin,
-    Key = crypto:hash('sha256', <<KeySeed/binary, Secret/binary>>),
+    Key = crypto:hash('sha256', <<KeySeed:?KEY_LEN/binary, Secret:16/binary>>),
     {Key, IV}.
 
 get_protocol(<<16#ef, 16#ef, 16#ef, 16#ef, _:2/binary>>) ->
