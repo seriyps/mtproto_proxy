@@ -63,7 +63,18 @@
 
         %% List of enabled replay-attack checks. See
         %% https://habr.com/ru/post/452144/
-        {replay_checks_enabled, [mtp_session_storage]},
+        %% session_storage - store last used 1st client packets in special
+        %% storage, drop connections with same 1st packet
+        %% Values: on/off
+        %% Default: off
+        {replay_check_session_storage, on},
+        %% server_error_filter - drop server error responses.
+        %% Values:
+        %%     first - drop server error only if it's 1st server packet
+        %%     on - drop all server error packets
+        %%     off - don't drop server errors
+        %% Default: off
+        {replay_check_server_error_filter, first},
 
         %% Options for `mtp_session_storage` replay attack check
         %% Those settings are not precise! They are checked not in realtime, but

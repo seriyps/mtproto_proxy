@@ -13,7 +13,8 @@
          downstream_size_backpressure_case/1,
          downstream_qlen_backpressure_case/1,
          config_change_case/1,
-         replay_attack_case/1
+         replay_attack_case/1,
+         replay_attack_server_error_case/1
         ]).
 
 -export([set_env/2,
@@ -345,6 +346,32 @@ replay_attack_case(Cfg) when is_list(Cfg) ->
         sys:get_state(mtp_test_metric)}),
     ?assertEqual(1, ErrCount()),
     ?assertEqual({error, closed}, mtp_test_client:recv_packet(Cli2, 1000)).
+
+%% @doc test replay attack protection.
+%% Server error responses are not proxied
+replay_attack_server_error_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
+replay_attack_server_error_case({post, Cfg}) ->
+    stop_single(Cfg);
+replay_attack_server_error_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    ErrCount = fun() ->
+                       mtp_test_metric:get_tags(
+                         count, [?APP, protocol_error, total], [srv_error_filtered])
+               end,
+    ?assertEqual(not_found, ErrCount()),
+    Cli1 = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
+    %% Let TG server echo error packet back, but packet will be filtered
+    _Cli2 = mtp_test_client:send(<<108, 254, 255, 255>>, Cli1),
+    ?assertEqual(
+       ok, mtp_test_metric:wait_for_value(
+             count, [?APP, protocol_error, total], [srv_error_filtered], 1, 5000),
+       {mtp_session_storage:status(),
+        sys:get_state(mtp_test_metric)}),
+    ?assertEqual(1, ErrCount()).
 
 %% TODO: send a lot, not read, and then close - assert connection IDs are cleaned up
 
