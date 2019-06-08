@@ -30,7 +30,7 @@
         %% `ip_lookup_services' will be tried one-by-one: if 1st is not responding,
         %% 2nd one will be tried and so on
         {ip_lookup_services,
-         ["http://ip.seriyps.ru/",
+         ["http://ipv4.seriyps.ru/",
           "https://digitalresistance.dog/myIp",
           "http://ipv4.myexternalip.com/raw"]},
         %% {external_ip, "YOUR.SERVER.EXTERNAL.IP"},

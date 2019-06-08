@@ -43,9 +43,10 @@ docker run -d --network=host -e MTP_PORT=443 -e MTP_SECRET=d0d6e111bada5511fcce9
 
 Where
 
-* `-p 443` / `MTP_PORT` proxy port
-* `-s d0d6e111bada5511fcce9584deadbeef` / `MTP_SECRET` proxy secret (don't append `dd`! it should be 32 chars long!)
-* `-t dcbe8f1493fa4cd9ab300891c0b5b326` / `MTP_TAG` ad-tag that you get from [@MTProxybot](https://t.me/MTProxybot)
+* `-p 443` / `MTP_PORT=…` proxy port
+* `-s d0d6e111bada5511fcce9584deadbeef` / `MTP_SECRET=…` proxy secret (don't append `dd`! it should be 32 chars long!)
+* `-t dcbe8f1493fa4cd9ab300891c0b5b326` / `MTP_TAG=…` ad-tag that you get from [@MTProxybot](https://t.me/MTProxybot)
+* `-d` / `MTP_DD_ONLY=t` only allow "secure" connections (dd-secrets)
 
 ### To run with custom config-file
 
@@ -274,6 +275,6 @@ Helpers
 
 Number of connections
 
-```erlang
+```bash
 /opt/mtp_proxy/bin/mtp_proxy eval 'lists:sum([proplists:get_value(all_connections, L) || {_, L} <- ranch:info()]).'
 ```
