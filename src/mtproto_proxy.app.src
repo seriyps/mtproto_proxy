@@ -1,6 +1,6 @@
 {application, mtproto_proxy,
- [{description, "An OTP application"},
-  {vsn, "0.4.1-mux"},
+ [{description, "High-performance Telegram MTProto proxy server"},
+  {vsn, "0.5.0"},
   {registered, []},
   {mod, { mtproto_proxy_app, []}},
   {applications,
@@ -139,5 +139,5 @@
 
   {maintainers, []},
   {licenses, ["Apache 2.0"]},
-  {links, []}
+  {links, [{"GitHub", "https://github.com/seriyps/mtproto_proxy"}]}
  ]}.

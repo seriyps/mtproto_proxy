@@ -11,12 +11,13 @@ Features
   to prevent detection by DPI
 * Secure-only mode (only allow connections with 'dd'-secrets). See `allowed_protocols` option.
 * Multiple ports with unique secret and promo tag for each port
-* Automatic configuration reload (no need for restarts once per day)
-* Most of the configuration options can be updated without service restart
 * Very high performance - can handle tens of thousands connections! Scales to all CPU cores.
+  1Gbps, 90k connections on 4-core/8Gb RAM cloud server.
 * Supports multiplexing (Many connections Client -> Proxy are wrapped to small amount of
   connections Proxy -> Telegram Server)
 * Protection from [replay attacks](https://habr.com/ru/post/452144/) used to detect proxies in some countries
+* Automatic telegram configuration reload (no need for restarts once per day)
+* Most of the configuration options can be updated without service restart
 * Small codebase compared to official one
 * A lots of metrics could be exported (optional)
 
@@ -269,6 +270,17 @@ it will use less CPU and will be better protected from replay attacks, but will 
   #{max_memory_mb => 2048,
     max_age_minutes => 1440}},
 ```
+
+Also, for highload setups it's recommended to increase sysctl parameters:
+
+```
+sudo sysctl net.ipv4.tcp_max_orphans=128000
+sudo sysctl 'net.ipv4.tcp_mem=179200 256000 384000'
+```
+
+Values for `tcp_mem` are in pages. Size of one page can be found by `getconf PAGESIZE` and is most
+likely 4kb.
+
 
 Helpers
 -------
