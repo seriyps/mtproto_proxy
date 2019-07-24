@@ -34,6 +34,7 @@
 -define(CONN_TIMEOUT, 10000).
 -define(SEND_TIMEOUT, 15000).
 -define(MAX_SOCK_BUF_SIZE, 1024 * 500).    % Decrease if CPU is cheaper than RAM
+-define(MAX_CODEC_BUFFERS, 5 * 1024 * 1024).
 
 -ifndef(OTP_RELEASE).                           % pre-OTP21
 -define(WITH_STACKTRACE(T, R, S), T:R -> S = erlang:get_stacktrace(), ).
@@ -484,7 +485,8 @@ down_handshake1(S) ->
     S1 = S#state{stage = handshake_1,
                  %% Use fake encryption codec
                  codec = mtp_codec:new(mtp_noop_codec, mtp_noop_codec:new(),
-                                       mtp_full, mtp_full:new(-2, -2)),
+                                       mtp_full, mtp_full:new(-2, -2),
+                                       false, undefined, ?MAX_CODEC_BUFFERS),
                  stage_state = {KeySelector, Nonce, CryptoTs, Key}},
     down_send(Msg, S1).
 
@@ -503,10 +505,8 @@ down_handshake2(Pkt, #state{stage_state = {MyKeySelector, CliNonce, MyTs, Key},
              clt_ip => MyIpBin, clt_port => MyPort, secret => Key},
     {EncKey, EncIv} = get_middle_key(Args#{purpose => <<"CLIENT">>}),
     {DecKey, DecIv} = get_middle_key(Args#{purpose => <<"SERVER">>}),
-    {_, _, PacketMod, PacketState} = mtp_codec:decompose(Codec1),
     CryptoState = mtp_aes_cbc:new(EncKey, EncIv, DecKey, DecIv, 16),
-    Codec = mtp_codec:new(mtp_aes_cbc, CryptoState,
-                          PacketMod, PacketState),
+    Codec = mtp_codec:replace(crypto, mtp_aes_cbc, CryptoState, Codec1),
     SenderPID = PeerPID = <<"IPIPPRPDTIME">>,
     Handshake = mtp_rpc:encode_handshake({handshake, SenderPID, PeerPID}),
     down_send(Handshake,

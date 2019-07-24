@@ -56,7 +56,7 @@
         %% only `{allowed_protocols, [mtp_secure]}` if you want to only allow
         %% connections to this proxy with "dd"-secrets. Connections by other
         %% protocols will be immediately closed.
-        {allowed_protocols, [mtp_abridged, mtp_intermediate, mtp_secure]},
+        {allowed_protocols, [mtp_abridged, mtp_intermediate, mtp_secure, mtp_fake_tls]},
 
         {init_dc_connections, 2},
         {clients_per_dc_connection, 300},

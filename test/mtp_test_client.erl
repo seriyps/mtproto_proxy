@@ -31,7 +31,7 @@ connect(Host, Port, Seed, Secret, DcId, Protocol) ->
     ok = gen_tcp:send(Sock, Header),
     PacketLayer = Protocol:new(),
     Codec = mtp_codec:new(mtp_obfuscated, CryptoLayer,
-                          Protocol, PacketLayer),
+                          Protocol, PacketLayer, false, undefined, 25 * 1024 * 1024),
     #client{sock = Sock,
             codec = Codec}.
 

@@ -20,6 +20,8 @@ new() ->
     ?MODULE.
 
 -spec try_decode_packet(binary(), codec()) -> {ok, binary(), binary(), codec()}.
+try_decode_packet(<<>>, ?MODULE) ->
+    {incomplete, ?MODULE};
 try_decode_packet(Data, ?MODULE) ->
     {ok, Data, <<>>, ?MODULE}.
 

@@ -118,10 +118,8 @@ wait_nonce(info, {tcp, _Sock, TcpData},
     {DecKey, DecIv} = mtp_down_conn:get_middle_key(Args#{purpose => <<"CLIENT">>}),
     {EncKey, EncIv} = mtp_down_conn:get_middle_key(Args#{purpose => <<"SERVER">>}),
     %% Add encryption layer to codec
-    {_, _, PacketMod, PacketState} = mtp_codec:decompose(Codec2),
     CryptoState = mtp_aes_cbc:new(EncKey, EncIv, DecKey, DecIv, 16),
-    Codec3 = mtp_codec:new(mtp_aes_cbc, CryptoState,
-                           PacketMod, PacketState),
+    Codec3 = mtp_codec:replace(crypto, mtp_aes_cbc, CryptoState, Codec2),
 
     {next_state, wait_handshake,
      activate(S1#hs_state{codec = Codec3,
