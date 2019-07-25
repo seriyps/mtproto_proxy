@@ -119,7 +119,7 @@ from_header(Header, Secret, AllowedProtocols) when byte_size(Header) == 64  ->
     {EncKey, EncIV} = init_up_encrypt(Header, Secret),
     {DecKey, DecIV} = init_up_decrypt(Header, Secret),
     St = new(EncKey, EncIV, DecKey, DecIV),
-    {<<_:56/binary, Bin1:6/binary, _:2/binary>>, St1} = decrypt(Header, St),
+    {<<_:56/binary, Bin1:6/binary, _:2/binary>>, <<>>, St1} = decrypt(Header, St),
     case get_protocol(Bin1) of
         {error, unknown_protocol} = Err ->
             Err;
@@ -168,17 +168,17 @@ encrypt(Data, #st{encrypt = Enc} = St) ->
     {Enc1, Encrypted} = crypto:stream_encrypt(Enc, Data),
     {Encrypted, St#st{encrypt = Enc1}}.
 
--spec decrypt(iodata(), codec()) -> {binary(), codec()}.
+-spec decrypt(iodata(), codec()) -> {binary(), binary(), codec()}.
 decrypt(Encrypted, #st{decrypt = Dec} = St) ->
     {Dec1, Data} = crypto:stream_encrypt(Dec, Encrypted),
-    {Data, St#st{decrypt = Dec1}}.
+    {Data, <<>>, St#st{decrypt = Dec1}}.
 
 %% To comply with mtp_layer interface
--spec try_decode_packet(iodata(), codec()) -> {ok, Decoded :: binary(), codec()}
+-spec try_decode_packet(iodata(), codec()) -> {ok, Decoded :: binary(), Tail :: binary(), codec()}
                                                   | {incomplete, codec()}.
 try_decode_packet(Encrypted, St) ->
-    {Decrypted, St1} = decrypt(Encrypted, St),
-    {ok, Decrypted, St1}.
+    {Decrypted, Tail, St1} = decrypt(Encrypted, St),
+    {ok, Decrypted, Tail, St1}.
 
 -spec encode_packet(iodata(), codec()) -> {iodata(), codec()}.
 encode_packet(Msg, S) ->

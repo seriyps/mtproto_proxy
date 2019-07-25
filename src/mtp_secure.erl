@@ -19,7 +19,7 @@
 new() ->
     mtp_intermediate:new(#{padding => true}).
 
--spec try_decode_packet(binary(), codec()) -> {ok, binary(), codec()}
+-spec try_decode_packet(binary(), codec()) -> {ok, binary(), binary(), codec()}
                                                   | {incomplete, codec()}.
 try_decode_packet(Data, St) ->
     mtp_intermediate:try_decode_packet(Data, St).

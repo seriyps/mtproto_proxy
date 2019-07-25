@@ -14,7 +14,7 @@ prop_codec() ->
 codec(Bin) ->
     Codec = mtp_full:new(),
     {Data, Codec1} = mtp_full:encode_packet(Bin, Codec),
-    {ok, Decoded, _} = mtp_full:try_decode_packet(iolist_to_binary(Data), Codec1),
+    {ok, Decoded, <<>>, _} = mtp_full:try_decode_packet(iolist_to_binary(Data), Codec1),
     Decoded == Bin.
 
 
@@ -40,6 +40,6 @@ decode_stream(BinStream, Codec, Acc) ->
     case mtp_full:try_decode_packet(BinStream, Codec) of
         {incomplete, _} ->
             lists:reverse(Acc);
-        {ok, DecPacket, Codec1} ->
-            decode_stream(<<>>, Codec1, [DecPacket | Acc])
+        {ok, DecPacket, Tail, Codec1} ->
+            decode_stream(Tail, Codec1, [DecPacket | Acc])
     end.

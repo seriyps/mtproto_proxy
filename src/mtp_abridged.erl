@@ -16,7 +16,7 @@
 -dialyzer(no_improper_lists).
 
 -record(st,
-        {buffer = <<>> :: binary()}).
+        {}).
 -define(MAX_PACKET_SIZE, 1 * 1024 * 1024).      % 1mb
 -define(APP, mtproto_proxy).
 
@@ -25,33 +25,31 @@
 new() ->
     #st{}.
 
--spec try_decode_packet(binary(), codec()) -> {ok, binary(), codec()}
+-spec try_decode_packet(binary(), codec()) -> {ok, binary(), binary(), codec()}
                                                   | {incomplete, codec()}.
-try_decode_packet(<<Flag, Len:24/unsigned-little-integer, Rest/binary>> = Data,
-                      #st{buffer = <<>>} = St) when Flag == 127; Flag == 255 ->
+try_decode_packet(<<Flag, Len:24/unsigned-little-integer, Rest/binary>>,
+                      #st{} = St) when Flag == 127; Flag == 255 ->
     Len1 = Len * 4,
-    try_decode_packet_len(Len1, Rest, Data, St);
-try_decode_packet(<<Len, Rest/binary>> = Data,
-                      #st{buffer = <<>>} = St) when Len >= 128 ->
+    try_decode_packet_len(Len1, Rest, St);
+try_decode_packet(<<Len, Rest/binary>>,
+                      #st{} = St) when Len >= 128 ->
     Len1 = (Len - 128) * 4,
-    try_decode_packet_len(Len1, Rest, Data, St);
-try_decode_packet(<<Len, Rest/binary>> = Data,
-                      #st{buffer = <<>>} = St) when Len < 127 ->
+    try_decode_packet_len(Len1, Rest, St);
+try_decode_packet(<<Len, Rest/binary>>,
+                      #st{} = St) when Len < 127 ->
     Len1 = Len * 4,
-    try_decode_packet_len(Len1, Rest, Data, St);
-try_decode_packet(Bin, #st{buffer = Buf} = St) when byte_size(Buf) > 0 ->
-    try_decode_packet(<<Buf/binary, Bin/binary>>, St#st{buffer = <<>>});
-try_decode_packet(Bin, #st{buffer = <<>>} = St) ->
-    {incomplete, St#st{buffer = Bin}}.
+    try_decode_packet_len(Len1, Rest, St);
+try_decode_packet(_, St) ->
+    {incomplete, St}.
 
-try_decode_packet_len(Len, LenStripped, Data, St) ->
+try_decode_packet_len(Len, LenStripped, St) ->
     (Len < ?MAX_PACKET_SIZE)
         orelse error({protocol_error, abridged_max_size, Len}),
     case LenStripped of
         <<Packet:Len/binary, Rest/binary>> ->
-            {ok, Packet, St#st{buffer = Rest}};
+            {ok, Packet, Rest, St};
         _ ->
-            {incomplete, St#st{buffer = Data}}
+            {incomplete, St}
     end.
 
 -spec encode_packet(binary(), codec()) -> {iodata(), codec()}.

@@ -18,8 +18,7 @@
 -dialyzer(no_improper_lists).
 
 -record(int_st,
-        {padding = false :: boolean(),
-         buffer = <<>> :: binary()}).
+        {padding = false :: boolean()}).
 -define(MAX_PACKET_SIZE, 1 * 1024 * 1024).      % 1mb
 -define(APP, mtproto_proxy).
 -define(MAX_SIZE, 16#80000000).
@@ -32,10 +31,9 @@ new() ->
 new(Opts) ->
     #int_st{padding = maps:get(padding, Opts, false)}.
 
--spec try_decode_packet(binary(), codec()) -> {ok, binary(), codec()}
+-spec try_decode_packet(binary(), codec()) -> {ok, binary(), binary(), codec()}
                                                   | {incomplete, codec()}.
-try_decode_packet(<<Len:32/unsigned-little, _/binary>> = Data,
-                      #int_st{buffer = <<>>} = St)  ->
+try_decode_packet(<<Len:32/unsigned-little, Tail/binary>>, St)  ->
     Len1 = case Len < ?MAX_SIZE of
                true -> Len;
                false -> Len - ?MAX_SIZE
@@ -45,11 +43,9 @@ try_decode_packet(<<Len:32/unsigned-little, _/binary>> = Data,
         begin
             error({protocol_error, intermediate_max_size, Len1})
         end,
-    try_decode_packet_len(Len1, Data, St);
-try_decode_packet(Bin, #int_st{buffer = Buf} = St) when byte_size(Buf) > 0 ->
-    try_decode_packet(<<Buf/binary, Bin/binary>>, St#int_st{buffer = <<>>});
-try_decode_packet(Bin, #int_st{buffer = <<>>} = St) ->
-    {incomplete, St#int_st{buffer = Bin}}.
+    try_decode_packet_len(Len1, Tail, St);
+try_decode_packet(_, St) ->
+    {incomplete, St}.
 
 try_decode_packet_len(Len, Data, #int_st{padding = Pad} = St) ->
     Padding = case Pad of
@@ -58,10 +54,10 @@ try_decode_packet_len(Len, Data, #int_st{padding = Pad} = St) ->
               end,
     NopadLen = Len - Padding,
     case Data of
-        <<_:4/binary, Packet:NopadLen/binary, _Padding:Padding/binary, Rest/binary>> ->
-            {ok, Packet, St#int_st{buffer = Rest}};
+        <<Packet:NopadLen/binary, _Padding:Padding/binary, Rest/binary>> ->
+            {ok, Packet, Rest, St};
         _ ->
-            {incomplete, St#int_st{buffer = Data}}
+            {incomplete, St}
     end.
 
 -spec encode_packet(iodata(), codec()) -> {iodata(), codec()}.

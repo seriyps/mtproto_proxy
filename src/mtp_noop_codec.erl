@@ -19,9 +19,9 @@
 new() ->
     ?MODULE.
 
--spec try_decode_packet(binary(), codec()) -> {ok, binary(), codec()}.
+-spec try_decode_packet(binary(), codec()) -> {ok, binary(), binary(), codec()}.
 try_decode_packet(Data, ?MODULE) ->
-    {ok, Data, ?MODULE}.
+    {ok, Data, <<>>, ?MODULE}.
 
 -spec encode_packet(binary(), codec()) -> {binary(), codec()}.
 encode_packet(Data, ?MODULE) ->

@@ -18,8 +18,7 @@
 -export_type([codec/0]).
 
 -record(baes_st,
-        {decode_buf :: binary(),
-         block_size :: pos_integer(),
+        {block_size :: pos_integer(),
          encrypt :: any(),                      % aes state
          decrypt :: any()                       % aes state
         }).
@@ -30,7 +29,6 @@
 
 new(EncKey, EncIv, DecKey, DecIv, BlockSize) ->
     #baes_st{
-       decode_buf = <<>>,
        block_size = BlockSize,
        encrypt = {EncKey, EncIv},
        decrypt = {DecKey, DecIv}
@@ -45,40 +43,37 @@ encrypt(Data, #baes_st{block_size = BSize,
     {Encrypted, S#baes_st{encrypt = {EncKey, crypto:next_iv(aes_cbc, Encrypted)}}}.
 
 
--spec decrypt(binary(), codec()) -> {binary(), codec()}.
-decrypt(Data, #baes_st{block_size = BSize,
-                       decode_buf = <<>>} = S) ->
+-spec decrypt(binary(), codec()) -> {Data :: binary(), Tail :: binary(), codec()}.
+decrypt(Data, #baes_st{block_size = BSize} = S) ->
     Size = byte_size(Data),
     Div = Size div BSize,
     Rem = Size rem BSize,
     case {Div, Rem} of
         {0, _} ->
             %% Not enough bytes
-            {<<>>, S#baes_st{decode_buf = Data}};
+            {<<>>, Data, S};
         {_, 0} ->
             %% Aligned
-            do_decrypt(Data, S);
+            do_decrypt(Data, <<>>, S);
         {_, Tail} ->
             %% N blocks + reminder
             Head = Size - Tail,
             <<ToDecode:Head/binary, Reminder/binary>> = Data,
-            do_decrypt(ToDecode, S#baes_st{decode_buf = Reminder})
-    end;
-decrypt(Data, #baes_st{decode_buf = Buf} = S) ->
-    decrypt(<<Buf/binary, Data/binary>>, S#baes_st{decode_buf = <<>>}).
+            do_decrypt(ToDecode, Reminder, S)
+    end.
 
-do_decrypt(Data, #baes_st{decrypt = {DecKey, DecIv}} = S) ->
+do_decrypt(Data, Tail, #baes_st{decrypt = {DecKey, DecIv}} = S) ->
     Decrypted = crypto:block_decrypt(aes_cbc, DecKey, DecIv, Data),
     NewDecIv = crypto:next_iv(aes_cbc, Data),
-    {Decrypted, S#baes_st{decrypt = {DecKey, NewDecIv}}}.
+    {Decrypted, Tail, S#baes_st{decrypt = {DecKey, NewDecIv}}}.
 
 %% To comply mtp_layer interface
 try_decode_packet(Bin, S) ->
     case decrypt(Bin, S) of
-        {<<>>, S1} ->
+        {<<>>, _Tail, S1} ->
             {incomplete, S1};
-        {Dec, S1} ->
-            {ok, Dec, S1}
+        {Dec, Tail, S1} ->
+            {ok, Dec, Tail, S1}
     end.
 
 encode_packet(Bin, S) ->
@@ -107,7 +102,7 @@ decrypt_test() ->
         ],
     lists:foldl(
       fun({In, Out}, S1) ->
-              {Dec, S2} = decrypt(In, S1),
+              {Dec, <<>>, S2} = decrypt(In, S1),
               ?assertEqual(Out, Dec),
               S2
       end, S, Samples).

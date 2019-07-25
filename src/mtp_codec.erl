@@ -15,7 +15,8 @@
          decompose/1,
          try_decode_packet/2,
          encode_packet/2,
-         fold_packets/4]).
+         fold_packets/4,
+         is_empty/1]).
 -export_type([codec/0]).
 
 -type state() :: any().
@@ -30,13 +31,15 @@
 -record(codec,
         {crypto_mod :: crypto_codec(),
          crypto_state :: any(),
+         crypto_buf = <<>> :: binary(),
          packet_mod :: packet_codec(),
-         packet_state :: any()}).
+         packet_state :: any(),
+         packet_buf = <<>> :: binary()}).
 
 -define(APP, mtproto_proxy).
 
 -callback try_decode_packet(binary(), state()) ->
-    {ok, binary(), state()}
+    {ok, Packet :: binary(), Tail :: binary(), state()}
         | {incomplete, state()}.
 
 -callback encode_packet(iodata(), state()) ->
@@ -60,26 +63,48 @@ decompose(#codec{crypto_mod = CryptoMod, crypto_state = CryptoState,
 
 %% try_decode_packet(Inner) |> try_decode_packet(Outer)
 -spec try_decode_packet(binary(), codec()) -> {ok, binary(), codec()} | {incomplete, codec()}.
-try_decode_packet(Bin, #codec{crypto_mod = CryptoMod,
-                              crypto_state = CryptoSt,
-                              packet_mod = PacketMod,
-                              packet_state = PacketSt} = S) ->
-    {Dec1, CryptoSt1} =
-        case CryptoMod:try_decode_packet(Bin, CryptoSt) of
-            {incomplete, PacketSt1_} ->
-                %% We have to check if something is left in packet's buffers
-                {<<>>, PacketSt1_};
-            {ok, Dec1_, PacketSt1_} ->
-                {Dec1_, PacketSt1_}
-        end,
-    case PacketMod:try_decode_packet(Dec1, PacketSt) of
+try_decode_packet(Bin, S) ->
+    decode_crypto(Bin, S).
+
+decode_crypto(<<>>, #codec{crypto_state = CS, crypto_buf = <<>>} = S) ->
+    %% There is smth in packet buffer
+    decode_packet(<<>>, CS, <<>>, S);
+decode_crypto(Bin, #codec{crypto_mod = CryptoMod,
+                          crypto_state = CryptoSt,
+                          crypto_buf = <<>>} = S) ->
+    case CryptoMod:try_decode_packet(Bin, CryptoSt) of
+        {incomplete, CryptoSt1} ->
+            decode_packet(<<>>, CryptoSt1, <<>>, S);
+        {ok, Dec1, Tail1, CryptoSt1} ->
+            decode_packet(Dec1, CryptoSt1, Tail1, S)
+    end;
+decode_crypto(Bin, #codec{crypto_buf = Buf} = S) ->
+    decode_crypto(<<Buf/binary, Bin/binary>>, S#codec{crypto_buf = <<>>}).
+
+
+decode_packet(<<>>, CryptoSt, CryptoTail, #codec{packet_buf = <<>>} = S) ->
+    %% Crypto produced nothing and there is nothing in packet buf
+    {incomplete, S#codec{crypto_state = CryptoSt, crypto_buf = CryptoTail}};
+decode_packet(Bin, CryptoSt, CryptoTail, #codec{packet_mod = PacketMod,
+                                                packet_state = PacketSt,
+                                                packet_buf = <<>>} = S) ->
+    %% Crypto produced smth, and there is nothing in pkt buf
+    case PacketMod:try_decode_packet(Bin, PacketSt) of
         {incomplete, PacketSt1} ->
-            {incomplete, S#codec{crypto_state = CryptoSt1,
-                                 packet_state = PacketSt1}};
-        {ok, Dec2, PacketSt1} ->
-            {ok, Dec2, S#codec{crypto_state = CryptoSt1,
-                               packet_state = PacketSt1}}
-    end.
+            {incomplete, S#codec{crypto_state = CryptoSt,
+                                 crypto_buf = CryptoTail,
+                                 packet_state = PacketSt1,
+                                 packet_buf = Bin
+                                }};
+        {ok, Dec2, Tail, PacketSt1} ->
+            {ok, Dec2, S#codec{crypto_state = CryptoSt,
+                               crypto_buf = CryptoTail,
+                               packet_state = PacketSt1,
+                               packet_buf = Tail}}
+    end;
+decode_packet(Bin, CSt, CTail, #codec{packet_buf = Buf} = S) ->
+    decode_packet(<<Buf/binary, Bin/binary>>, CSt, CTail, S#codec{packet_buf = <<>>}).
+
 
 %% encode_packet(Outer) |> encode_packet(Inner)
 -spec encode_packet(iodata(), codec()) -> {iodata(), codec()}.
@@ -105,3 +130,7 @@ fold_packets(Fun, FoldSt, Data, Codec) ->
         {incomplete, Codec1} ->
             {ok, FoldSt, Codec1}
     end.
+
+-spec is_empty(codec()) -> boolean().
+is_empty(#codec{packet_buf = <<>>, crypto_buf = <<>>}) -> true;
+is_empty(_) -> false.

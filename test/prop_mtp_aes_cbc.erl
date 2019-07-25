@@ -28,6 +28,6 @@ stream_codec(Key, Iv, Stream) ->
                   {<<Acc/binary, (iolist_to_binary(Data))/binary>>,
                    Codec2}
           end, {<<>>, Codec}, Stream),
-    {Decrypted, _Codec3} = mtp_aes_cbc:decrypt(BinStream, Codec2),
+    {Decrypted, <<>>, _Codec3} = mtp_aes_cbc:decrypt(BinStream, Codec2),
     %% io:format("Dec: ~p~nOrig: ~p~nCodec: ~p~n", [Decrypted, Stream, _Codec3]),
     Decrypted == iolist_to_binary(Stream).

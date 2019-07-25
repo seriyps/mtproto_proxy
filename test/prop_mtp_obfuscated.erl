@@ -30,7 +30,7 @@ stream_codec(Key, Iv, Stream) ->
                   {<<Acc/binary, (iolist_to_binary(Data))/binary>>,
                    Codec2}
           end, {<<>>, Codec}, Stream),
-    {Decrypted, _Codec3} = mtp_obfuscated:decrypt(BinStream, Codec2),
+    {Decrypted, <<>>, _Codec3} = mtp_obfuscated:decrypt(BinStream, Codec2),
     %% io:format("Dec: ~p~nOrig: ~p~nCodec: ~p~n", [Decrypted, Stream, _Codec3]),
     Decrypted == iolist_to_binary(Stream).
 
@@ -99,7 +99,7 @@ transmit_stream(EncCodec, DecCodec, Stream) ->
                   {<<Acc/binary, (iolist_to_binary(Data))/binary>>,
                    CliCodec2}
           end, {<<>>, EncCodec}, Stream),
-    {Decrypted, DecCodec2} = mtp_obfuscated:decrypt(EncStream, DecCodec),
+    {Decrypted, <<>>, DecCodec2} = mtp_obfuscated:decrypt(EncStream, DecCodec),
     {EncCodec3,
      DecCodec2,
      Decrypted}.
