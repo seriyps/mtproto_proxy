@@ -38,6 +38,9 @@ new(EncSeqNo, DecSeqNo) ->
     #full_st{enc_seq_no = EncSeqNo,
              dec_seq_no = DecSeqNo}.
 
+try_decode_packet(<<4:32/little, Tail/binary>>, S) ->
+    %% Skip padding
+    try_decode_packet(Tail, S);
 try_decode_packet(<<Len:32/little, PktSeqNo:32/signed-little, Tail/binary>>,
                   #full_st{dec_seq_no = SeqNo} = S) ->
     ((Len rem byte_size(?PAD)) == 0)
@@ -52,17 +55,13 @@ try_decode_packet(<<Len:32/little, PktSeqNo:32/signed-little, Tail/binary>>,
             PacketCrc = erlang:crc32([<<Len:32/little, PktSeqNo:32/little>> | Body]),
             (CRC == PacketCrc)
                 orelse error({wrong_checksum, CRC, PacketCrc}),
-            {ok, Body, skip_padding(Len, Rest), S#full_st{dec_seq_no = SeqNo + 1}};
+            %% TODO: can we drop padding in-advance?
+            {ok, Body, Rest, S#full_st{dec_seq_no = SeqNo + 1}};
         _ ->
             {incomplete, S}
     end;
 try_decode_packet(_, S) ->
     {incomplete, S}.
-
-skip_padding(PktLen, Bin) ->
-    PaddingSize = padding_size(PktLen),
-    <<_:PaddingSize/binary, Tail/binary>> = Bin,
-    Tail.
 
 
 encode_packet(Bin, #full_st{enc_seq_no = SeqNo} = S) ->
