@@ -74,7 +74,7 @@ decode_crypto(Bin, #codec{crypto_mod = CryptoMod,
                           crypto_buf = <<>>} = S) ->
     case CryptoMod:try_decode_packet(Bin, CryptoSt) of
         {incomplete, CryptoSt1} ->
-            decode_packet(<<>>, CryptoSt1, <<>>, S);
+            decode_packet(<<>>, CryptoSt1, Bin, S);
         {ok, Dec1, Tail1, CryptoSt1} ->
             decode_packet(Dec1, CryptoSt1, Tail1, S)
     end;
