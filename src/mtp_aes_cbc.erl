@@ -67,7 +67,6 @@ do_decrypt(Data, Tail, #baes_st{decrypt = {DecKey, DecIv}} = S) ->
     NewDecIv = crypto:next_iv(aes_cbc, Data),
     {Decrypted, Tail, S#baes_st{decrypt = {DecKey, NewDecIv}}}.
 
-%% To comply mtp_layer interface
 try_decode_packet(Bin, S) ->
     case decrypt(Bin, S) of
         {<<>>, _Tail, S1} ->

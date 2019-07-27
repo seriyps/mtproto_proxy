@@ -9,7 +9,9 @@ Features
 * Promoted channels! See `mtproto_proxy_app.src` `tag` option.
 * "secure" randomized-packet-size protocol (34-symbol secrets starting with 'dd')
   to prevent detection by DPI
-* Secure-only mode (only allow connections with 'dd'-secrets). See `allowed_protocols` option.
+* Fake-TLS protocol (base64 secrets) - another protocol to prevent DPI detection
+* Secure-only mode (only allow connections with 'dd' or fake-tls-base64-secrets).
+  See `allowed_protocols` option.
 * Multiple ports with unique secret and promo tag for each port
 * Very high performance - can handle tens of thousands connections! Scales to all CPU cores.
   1Gbps, 90k connections on 4-core/8Gb RAM cloud server.
@@ -47,7 +49,10 @@ Where
 * `-p 443` / `MTP_PORT=…` proxy port
 * `-s d0d6e111bada5511fcce9584deadbeef` / `MTP_SECRET=…` proxy secret (don't append `dd`! it should be 32 chars long!)
 * `-t dcbe8f1493fa4cd9ab300891c0b5b326` / `MTP_TAG=…` ad-tag that you get from [@MTProxybot](https://t.me/MTProxybot)
-* `-d` / `MTP_DD_ONLY=t` only allow "secure" connections (dd-secrets)
+* `-a dd` / `MTP_DD_ONLY=t` only allow "secure" connections (dd-secrets)
+* `-a tls` / `MTP_TLS_ONLY=t` only allow "fake-TLS" connections (base64 secrets)
+
+It's ok to provide both `-a dd -a tls` to allow both protocols. If no `-a` option provided, all protocols will be allowed.
 
 ### To run with custom config-file
 
@@ -234,6 +239,8 @@ Each section should have unique `name`!
 
 ### Only allow connections with 'dd'-secrets
 
+This protocol uses randomized packet sizes, so it's more difficult to detect on DPI by
+packet sizes.
 It might be useful in Iran, where proxies are detected by DPI.
 You should disable all protocols other than `mtp_secure` by providing `allowed_protocols` option:
 
@@ -241,6 +248,22 @@ You should disable all protocols other than `mtp_secure` by providing `allowed_p
   {mtproto_proxy,
    [
     {allowed_protocols, [mtp_secure]},
+    {ports,
+     [#{name => mtp_handler_1,
+      <..>
+```
+
+### Only allow fake-TLS connections with base64-secrets
+
+Another censorship circumvention technique. MTPRoto proxy protocol pretends to be
+HTTPS web traffic (technically speaking, TLSv1.3 + HTTP/2).
+It's possible to only allow connections with this protocol by changing `allowed_protocols` to
+be list with only `mtp_fake_tls`:
+
+```erlang
+  {mtproto_proxy,
+   [
+    {allowed_protocols, [mtp_fake_tls]},
     {ports,
      [#{name => mtp_handler_1,
       <..>

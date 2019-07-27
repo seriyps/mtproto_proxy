@@ -10,7 +10,6 @@
 -export([client_create/3,
          client_create/4,
          from_header/2,
-         from_header/3,
          new/4,
          encrypt/2,
          decrypt/2,
@@ -38,7 +37,7 @@ client_create(Secret, Protocol, DcId) ->
     client_create(crypto:strong_rand_bytes(58),
                   Secret, Protocol, DcId).
 
--spec client_create(binary(), binary(), mtp_layer:codec(), integer()) ->
+-spec client_create(binary(), binary(), mtp_codec:packet_codec(), integer()) ->
                            {Packet,
                             {EncKey, EncIv},
                             {DecKey, DecIv},
@@ -93,13 +92,9 @@ encode_dc_id(DcId) ->
     <<DcId:16/signed-little-integer>>.
 
 %% @doc creates new obfuscated stream (MTProto proxy format)
-from_header(Header, Secret) ->
-    {ok, AllowedProtocols} = application:get_env(?APP, allowed_protocols),
-    from_header(Header, Secret, AllowedProtocols).
-
--spec from_header(binary(), binary()) -> {ok, integer(), mtp_layer:codec(), codec()}
-                                             | {error, unknown_protocol | disabled_protocol}.
-from_header(Header, Secret, AllowedProtocols) when byte_size(Header) == 64  ->
+-spec from_header(binary(), binary()) -> {ok, integer(), mtp_codec:packet_codec(), codec()}
+                                             | {error, unknown_protocol}.
+from_header(Header, Secret) when byte_size(Header) == 64  ->
     %% 1) Encryption key
     %%     [--- _: 8b ----|---------- b: 48b -------------|-- _: 8b --] = header: 64b
     %% b_r: 48b = reverse([---------- b ------------------])
@@ -124,13 +119,8 @@ from_header(Header, Secret, AllowedProtocols) when byte_size(Header) == 64  ->
         {error, unknown_protocol} = Err ->
             Err;
         Protocol ->
-            case lists:member(Protocol, AllowedProtocols) of
-                true ->
-                    DcId = get_dc(Bin1),
-                    {ok, DcId, Protocol, St1};
-                false ->
-                    {error, disabled_protocol}
-            end
+            DcId = get_dc(Bin1),
+            {ok, DcId, Protocol, St1}
     end.
 
 init_up_encrypt(Bin, Secret) ->
@@ -173,7 +163,6 @@ decrypt(Encrypted, #st{decrypt = Dec} = St) ->
     {Dec1, Data} = crypto:stream_encrypt(Dec, Encrypted),
     {Data, <<>>, St#st{decrypt = Dec1}}.
 
-%% To comply with mtp_layer interface
 -spec try_decode_packet(iodata(), codec()) -> {ok, Decoded :: binary(), Tail :: binary(), codec()}
                                                   | {incomplete, codec()}.
 try_decode_packet(Encrypted, St) ->
@@ -198,7 +187,7 @@ client_server_test() ->
     DcId = 4,
     Protocol = mtp_secure,
     {Packet, _, _, _CliCodec} = client_create(Secret, Protocol, DcId),
-    Srv = from_header(Packet, Secret, [Protocol]),
+    Srv = from_header(Packet, Secret),
     ?assertMatch({ok, DcId, Protocol, _}, Srv).
 
 -endif.

@@ -52,7 +52,7 @@ cs_hs_exchange(Secret, DcId, Protocol) ->
     %% io:format("Secret: ~p; DcId: ~p, Protocol: ~p~n",
     %%           [Secret, DcId, Protocol]),
     {Packet, _, _, _CliCodec} = mtp_obfuscated:client_create(Secret, Protocol, DcId),
-    case mtp_obfuscated:from_header(Packet, Secret, [Protocol]) of
+    case mtp_obfuscated:from_header(Packet, Secret) of
         {ok, DcId, Protocol, _SrvCodec} ->
             true;
         _ ->
@@ -78,7 +78,7 @@ cs_stream_exchange(Secret, DcId, Protocol, Stream) ->
     %% io:format("Secret: ~p; DcId: ~p, Protocol: ~p~n",
     %%           [Secret, DcId, Protocol]),
     {Header, _, _, CliCodec} = mtp_obfuscated:client_create(Secret, Protocol, DcId),
-    {ok, DcId, Protocol, SrvCodec} = mtp_obfuscated:from_header(Header, Secret, [Protocol]),
+    {ok, DcId, Protocol, SrvCodec} = mtp_obfuscated:from_header(Header, Secret),
 
     %% Client to server
     {CliCodec1,

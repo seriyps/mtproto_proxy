@@ -34,6 +34,7 @@ PORT=${MTP_PORT:-""}
 SECRET=${MTP_SECRET:-""}
 TAG=${MTP_TAG:-""}
 DD_ONLY=${MTP_DD_ONLY:-""}
+TLS_ONLY=${MTP_TLS_ONLY:-""}
 
 # check command line options
 while getopts "p:s:t:dh" o; do
@@ -47,7 +48,17 @@ while getopts "p:s:t:dh" o; do
         t)
             TAG=${OPTARG}
             ;;
+        a)
+            if [ "${OPTARG}" -e "dd" ]; then
+                DD_ONLY="y"
+            elif [ "${OPTARG}" -eq "tls" ]; then
+                TLS_ONLY="y"
+            else
+                error "Invalid -a value: '${OPTARG}'"
+            fi
+            ;;
         d)
+            echo "Warning: -d is deprecated! use '-a dd' instead"
             DD_ONLY="y"
             ;;
         h)
@@ -56,10 +67,14 @@ while getopts "p:s:t:dh" o; do
     esac
 done
 
-DD_ARG=""
+PROTO_ARG=""
 
-if [ -n "${DD_ONLY}" ]; then
-    DD_ARG='-mtproto_proxy allowed_protocols [mtp_secure]'
+if [ -n "${DD_ONLY}" -a -n "${TLS_ONLY}" ]; then
+    PROTO_ARG="-mtproto_proxy allowed_protocols [mtp_fake_tls, mtp_secure]"
+elif [ -n "${DD_ONLY}" ]; then
+    PROTO_ARG='-mtproto_proxy allowed_protocols [mtp_secure]'
+elif [ -n "${TLS_ONLY}" ]; then
+    PROTO_ARG='-mtproto_proxy allowed_protocols [mtp_fake_tls]'
 fi
 
 # if at least one option is set...
@@ -76,7 +91,7 @@ if [ -n "${PORT}" -o -n "${SECRET}" -o -n "${TAG}" ]; then
     [ -n "`echo $TAG | grep -x '[[:xdigit:]]\{32\}'`" ] || \
         error "Invalid tag. Should be 32 chars of 0-9 a-f"
 
-    exec $CMD $DD_ARG -mtproto_proxy ports "[#{name => mtproto_proxy, port => $PORT, secret => <<\"$SECRET\">>, tag => <<\"$TAG\">>}]"
+    exec $CMD $PROTO_ARG -mtproto_proxy ports "[#{name => mtproto_proxy, port => $PORT, secret => <<\"$SECRET\">>, tag => <<\"$TAG\">>}]"
 else
-    exec $CMD $DD_ARG
+    exec $CMD $PROTO_ARG
 fi

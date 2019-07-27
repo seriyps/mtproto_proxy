@@ -52,11 +52,11 @@
         {num_acceptors, 60},
         {max_connections, 40960},
         %% It's possible to forbid connection from telegram client to proxy
-        %% with some of the protocols. Might be useful to set this to
-        %% only `{allowed_protocols, [mtp_secure]}` if you want to only allow
-        %% connections to this proxy with "dd"-secrets. Connections by other
-        %% protocols will be immediately closed.
-        {allowed_protocols, [mtp_abridged, mtp_intermediate, mtp_secure, mtp_fake_tls]},
+        %% with some of the protocols. Ti's recommended to set this to
+        %% only `{allowed_protocols, [mtp_secure, mtp_fake_tls]}` because those
+        %% protocols are more resistant to DPI detection. Connections by other
+        %% protocols will be immediately disallowed.
+        {allowed_protocols, [mtp_fake_tls, mtp_secure, mtp_abridged, mtp_intermediate]},
 
         {init_dc_connections, 2},
         {clients_per_dc_connection, 300},

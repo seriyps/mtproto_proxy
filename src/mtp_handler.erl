@@ -180,10 +180,7 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
         {ok, S1} ->
             ok = Transport:setopts(Sock, [{active, once}]),
             %% Consider checking health here as well
-            {noreply, bump_timer(S1)};
-        {error, Reason} ->
-            ?log(info, "handle_data error ~p", [Reason]),
-            {stop, normal, S}
+            {noreply, bump_timer(S1)}
     catch error:{protocol_error, Type, Extra} ->
             mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Type]}),
             ?log(warning, "~s: protocol_error ~p ~p", [inet:ntoa(Ip), Type, Extra]),
@@ -265,11 +262,9 @@ state_timeout(stop) ->
 %% Handle telegram client -> proxy stream
 handle_upstream_data(Bin, #state{stage = tunnel,
                                   codec = UpCodec} = S) ->
-    ?log(debug, "tunneling ~p; codec=~p", [Bin, UpCodec]),
     {ok, S3, UpCodec1} =
         mtp_codec:fold_packets(
           fun(Decoded, S1, Codec1) ->
-                  ?log(debug, "raw tunneled packet ~p", [Decoded]),
                   mtp_metric:histogram_observe(
                     [?APP, tg_packet_size, bytes],
                     byte_size(Decoded),
@@ -279,20 +274,16 @@ handle_upstream_data(Bin, #state{stage = tunnel,
           end, S, Bin, UpCodec),
     {ok, S3#state{codec = UpCodec1}};
 handle_upstream_data(Bin, #state{codec = Codec0} = S0) ->
-    ?log(debug, "Codec0: ~p", [Codec0]),
     {ok, S, Codec} =
         mtp_codec:fold_packets(
           fun(Decoded, S1, Codec1) ->
-                  ?log(debug, "Codec1: ~p, unfolded: ~p", [Codec1, Decoded]),
                   case parse_upstream_data(Decoded, S1#state{codec = Codec1}) of
                       {ok, S2} ->
-                          ?log(debug, "Codec2: ~p", [S2#state.codec]),
                           {S2, S2#state.codec};
                       {error, Err} ->
                           error(Err)
                   end
           end, S0, Bin, Codec0),
-    ?log(debug, "Codec: ~p", [Codec]),
     case mtp_codec:is_empty(Codec) of
         true ->
             {ok, S#state{codec = Codec}};
@@ -304,20 +295,14 @@ handle_upstream_data(Bin, #state{codec = Codec0} = S0) ->
 parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
                      #state{stage = tls_hello, secret = Secret, codec = Codec0} = S) when
       byte_size(AllData) >= (?TLS_CLIENT_HELLO_LEN + 5) ->
-    {ok, AllowedProtocols} = application:get_env(?APP, allowed_protocols),
-    lists:member(mtp_fake_tls, AllowedProtocols) orelse
-        error({protocol_error, disabled_protocol, mtp_fake_tls}),
+    assert_protocol(mtp_fake_tls),
     <<Data:(?TLS_CLIENT_HELLO_LEN + 5)/binary, Tail/binary>> = AllData,
-    case mtp_fake_tls:from_client_hello(Data, Secret) of
-        {ok, Response, SessionId, Timestamp, TlsCodec} ->
-            maybe_check_tls_replay(SessionId, Timestamp),
-            Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
-            Codec = mtp_codec:push_back(tls, Tail, Codec1),
-            ok = up_send_raw(Response, S),
-            {ok, S#state{codec = Codec, stage = init}};
-        {error, _} = Err ->
-            Err
-    end;
+    {ok, Response, SessionId, Timestamp, TlsCodec} = mtp_fake_tls:from_client_hello(Data, Secret),
+    maybe_check_tls_replay(SessionId, Timestamp),
+    Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
+    Codec = mtp_codec:push_back(tls, Tail, Codec1),
+    ok = up_send_raw(Response, S),
+    {ok, S#state{codec = Codec, stage = init}};
 parse_upstream_data(<<?TLS_START, _/binary>> = Data, #state{stage = init} = S) ->
     parse_upstream_data(Data, S#state{stage = tls_hello});
 parse_upstream_data(<<Header:64/binary, Rest/binary>>,
@@ -326,19 +311,20 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
             maybe_check_replay(Header),
-            ProtoToReport = case mtp_codec:info(tls, Codec0) of
-                                {true, _} when PacketLayerMod == mtp_secure ->
-                                    mtp_secure_fake_tls;
-                                {false, _} ->
-                                    PacketLayerMod
-                            end,
+            ProtoToReport =
+                case mtp_codec:info(tls, Codec0) of
+                    {true, _} when PacketLayerMod == mtp_secure ->
+                        mtp_secure_fake_tls;
+                    {false, _} ->
+                        assert_protocol(PacketLayerMod),
+                        PacketLayerMod
+                end,
             mtp_metric:count_inc([?APP, protocol_ok, total],
                                  1, #{labels => [Listener, ProtoToReport]}),
             Codec1 = mtp_codec:replace(crypto, mtp_obfuscated, CryptoCodecSt, Codec0),
             PacketCodec = PacketLayerMod:new(),
             Codec2 = mtp_codec:replace(packet, PacketLayerMod, PacketCodec, Codec1),
             Codec = mtp_codec:push_back(crypto, Rest, Codec2),
-            ?log(debug, "Hdr=~p, codec=~p", [Header, Codec]),
             Opts = #{ad_tag => Tag,
                      addr => Addr},
             {RealDcId, Pool, Downstream} = mtp_config:get_downstream_safe(DcId, Opts),
@@ -357,6 +343,11 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
 parse_upstream_data(Bin, #state{stage = Stage, codec = Codec0} = S) when Stage =/= tunnel ->
     Codec = mtp_codec:push_back(first, Bin, Codec0),
     {ok, S#state{codec = Codec}}.
+
+assert_protocol(Protocol) ->
+    {ok, AllowedProtocols} = application:get_env(?APP, allowed_protocols),
+    lists:member(Protocol, AllowedProtocols)
+        orelse error({protocol_error, disabled_protocol, Protocol}).
 
 maybe_check_replay(Packet) ->
     %% Check for session replay attack: attempt to connect with the same 1st 64byte packet
