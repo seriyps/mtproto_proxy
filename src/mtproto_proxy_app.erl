@@ -105,13 +105,13 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
             num_acceptors => NumAcceptors,
             max_connections => MaxConnections},
           mtp_handler, [Name, Secret, Tag]),
-    Url = io_lib:format(
-            "https://t.me/proxy?server=~s&port=~w&secret=~s",
-            [application:get_env(?APP, external_ip, ListenIpStr),
-             Port, Secret]),
-    report("Proxy started on ~s:~p with secret: ~s, tag: ~s~nUrl: ~s~n",
-           [ListenIpStr, Port, Secret, Tag, Url]),
+    Urls = build_urls(application:get_env(?APP, external_ip, ListenIpStr),
+                      Port, Secret, application:get_env(?APP, allowed_protocols, [])),
+    UrlsStr = ["\n" | lists:join("\n", Urls)],
+    report("Proxy started on ~s:~p with secret: ~s, tag: ~s~nLinks: ~s",
+           [ListenIpStr, Port, Secret, Tag, UrlsStr]),
     Res.
+
 
 stop_proxy(#{name := Name}) ->
     ranch:stop_listener(Name).
@@ -158,11 +158,42 @@ downstream_connections() ->
     [Pid || {_, Pid, worker, [mtp_down_conn]} <- supervisor:which_children(mtp_down_conn_sup)].
 
 
+build_urls(Host, Port, Secret, Protocols) ->
+    MkUrl = fun(ProtoSecret) ->
+                    io_lib:format(
+                      "https://t.me/proxy?server=~s&port=~w&secret=~s",
+                      [Host, Port, ProtoSecret])
+            end,
+    UrlTypes = lists:usort(
+                 lists:map(fun(mtp_abridged) -> normal;
+                              (mtp_intermediate) -> normal;
+                              (Other) -> Other
+                           end, Protocols)),
+    lists:map(
+      fun(mtp_fake_tls) ->
+              RawSecret = mtp_handler:unhex(Secret),
+              ProtoSecret = base64url(<<16#ee, RawSecret/binary, "en.wikipedia.org">>),
+              MkUrl(ProtoSecret);
+         (mtp_secure) ->
+              ProtoSecret = ["dd", Secret],
+              MkUrl(ProtoSecret);
+         (normal) ->
+              MkUrl(Secret)
+      end, UrlTypes).
+
+base64url(Bin) ->
+    %% see https://hex.pm/packages/base64url
+    << << (urlencode_digit(D)) >> || <<D>> <= base64:encode(Bin), D =/= $= >>.
+
+urlencode_digit($/) -> $_;
+urlencode_digit($+) -> $-;
+urlencode_digit(D)  -> D.
+
 -ifdef(TEST).
 report(Fmt, Args) ->
     ?log(debug, Fmt, Args).
 -else.
 report(Fmt, Args) ->
-    io:format(Fmt, Args),
+    io:format(Fmt ++ "\n", Args),
     ?log(info, Fmt, Args).
 -endif.
