@@ -15,7 +15,7 @@
          info/2, replace/4, push_back/3, is_empty/1,
          try_decode_packet/2,
          encode_packet/2,
-         fold_packets/4]).
+         fold_packets/4, fold_packets_if/4]).
 -export_type([codec/0]).
 
 -type state() :: any().
@@ -185,7 +185,7 @@ encode_packet(Bin, #codec{have_tls = HaveTls,
     end.
 
 
--spec fold_packets(fun( (binary(), FoldSt, codec()) -> FoldSt ),
+-spec fold_packets(fun( (binary(), FoldSt, codec()) -> {FoldSt, codec()} ),
                    FoldSt, binary(), codec()) ->
                           {ok, FoldSt, codec()}
                               when
@@ -197,6 +197,24 @@ fold_packets(Fun, FoldSt, Data, Codec) ->
             fold_packets(Fun, FoldSt1, <<>>, Codec2);
         {incomplete, Codec1} ->
             {ok, FoldSt, Codec1}
+    end.
+
+-spec fold_packets_if(fun( (binary(), FoldSt, codec()) -> {next | stop, FoldSt, codec()} ),
+                   FoldSt, binary(), codec()) ->
+                          {ok, FoldSt, codec()}
+                              when
+      FoldSt :: any().
+fold_packets_if(Fun, FoldSt0, Data, Codec0) ->
+    case try_decode_packet(Data, Codec0) of
+        {ok, Decoded, Codec1} ->
+            case Fun(Decoded, FoldSt0, Codec1) of
+                {next, FoldSt1, Codec2} ->
+                    fold_packets(Fun, FoldSt1, <<>>, Codec2);
+                {stop, FoldSt1, Codec2} ->
+                    {ok, FoldSt1, Codec2}
+            end;
+        {incomplete, Codec1} ->
+            {ok, FoldSt0, Codec1}
     end.
 
 -spec is_empty(codec()) -> boolean().

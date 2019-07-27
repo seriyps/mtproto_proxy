@@ -275,21 +275,18 @@ handle_upstream_data(Bin, #state{stage = tunnel,
     {ok, S3#state{codec = UpCodec1}};
 handle_upstream_data(Bin, #state{codec = Codec0} = S0) ->
     {ok, S, Codec} =
-        mtp_codec:fold_packets(
+        mtp_codec:fold_packets_if(
           fun(Decoded, S1, Codec1) ->
                   case parse_upstream_data(Decoded, S1#state{codec = Codec1}) of
                       {ok, S2} ->
-                          {S2, S2#state.codec};
+                          {next, S2, S2#state.codec};
+                      {incomplete, S2} ->
+                          {stop, S2, S2#state.codec};
                       {error, Err} ->
                           error(Err)
                   end
           end, S0, Bin, Codec0),
-    case mtp_codec:is_empty(Codec) of
-        true ->
-            {ok, S#state{codec = Codec}};
-        false ->
-            handle_upstream_data(<<>>, S#state{codec = Codec})
-    end.
+    {ok, S#state{codec = Codec}}.
 
 
 parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
@@ -336,13 +333,13 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                         codec = Codec,
                         stage = tunnel},
                 hibernate));
-        {error, Reason} = Err ->
+        {error, Reason} when is_atom(Reason) ->
             mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Reason]}),
-            Err
+            error({protocol_error, Reason, Header})
     end;
 parse_upstream_data(Bin, #state{stage = Stage, codec = Codec0} = S) when Stage =/= tunnel ->
     Codec = mtp_codec:push_back(first, Bin, Codec0),
-    {ok, S#state{codec = Codec}}.
+    {incomplete, S#state{codec = Codec}}.
 
 assert_protocol(Protocol) ->
     {ok, AllowedProtocols} = application:get_env(?APP, allowed_protocols),
