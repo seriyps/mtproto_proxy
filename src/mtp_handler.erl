@@ -281,9 +281,7 @@ handle_upstream_data(Bin, #state{codec = Codec0} = S0) ->
                       {ok, S2} ->
                           {next, S2, S2#state.codec};
                       {incomplete, S2} ->
-                          {stop, S2, S2#state.codec};
-                      {error, Err} ->
-                          error(Err)
+                          {stop, S2, S2#state.codec}
                   end
           end, S0, Bin, Codec0),
     {ok, S#state{codec = Codec}}.

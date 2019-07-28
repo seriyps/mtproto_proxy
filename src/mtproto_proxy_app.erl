@@ -9,7 +9,7 @@
 
 %% Application callbacks
 -export([start/2, prep_stop/1, stop/1, config_change/3]).
--export([mtp_listeners/0, running_ports/0, start_proxy/1]).
+-export([mtp_listeners/0, running_ports/0, start_proxy/1, build_urls/4]).
 
 -define(APP, mtproto_proxy).
 

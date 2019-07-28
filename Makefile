@@ -10,6 +10,14 @@ USER:=mtproto-proxy
 all: config/prod-sys.config config/prod-vm.args
 	$(REBAR3) as prod release
 
+.PHONY: test
+test:
+	$(REBAR3) xref
+	$(REBAR3) eunit
+	$(REBAR3) ct
+	$(REBAR3) proper -n 50
+	$(REBAR3) dialyzer
+
 config/prod-sys.config: config/sys.config.example
 	[ -f $@ ] && diff $^ $@ || true
 	cp -i -b $^ $@
