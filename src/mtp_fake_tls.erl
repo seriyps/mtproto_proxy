@@ -11,11 +11,12 @@
 
 -behaviour(mtp_codec).
 
+-export([format_secret/2]).
 -export([from_client_hello/2,
          new/0,
          try_decode_packet/2,
          encode_packet/2]).
--export_type([codec/0]).
+-export_type([codec/0, meta/0]).
 
 -include_lib("hut/include/hut.hrl").
 
@@ -56,16 +57,39 @@
 -define(TLS_CHANGE_CIPHER, ?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, 0, 1, 1).
 
 -define(EXT_SNI, 0).
+-define(EXT_SNI_HOST_NAME, 0).
 
 -define(APP, mtproto_proxy).
 
 -opaque codec() :: #st{}.
 
+-type meta() :: #{session_id := binary(),
+                  timestamp := non_neg_integer(),
+                  sni_domain => binary()}.
+
+
+%% @doc format TLS secret
+-spec format_secret(binary(), binary()) -> binary().
+format_secret(Secret, Domain) when byte_size(Secret) == 16 ->
+    base64url(<<16#ee, Secret/binary, Domain/binary>>);
+format_secret(HexSecret, Domain) when byte_size(HexSecret) == 32 ->
+    format_secret(mtp_handler:unhex(HexSecret), Domain).
+
+base64url(Bin) ->
+    %% see https://hex.pm/packages/base64url
+    << << (urlencode_digit(D)) >> || <<D>> <= base64:encode(Bin), D =/= $= >>.
+
+urlencode_digit($/) -> $_;
+urlencode_digit($+) -> $-;
+urlencode_digit(D)  -> D.
+
+
 -spec from_client_hello(binary(), binary()) ->
-                               {ok, iodata(), binary(), non_neg_integer(), codec()}.
+                               {ok, iodata(), meta(), codec()}.
 from_client_hello(Data, Secret) ->
     #client_hello{pseudorandom = ClientDigest,
-                  session_id = SessionId} = CliHlo = parse_client_hello(Data),
+                  session_id = SessionId,
+                  extensions = Extensions} = CliHlo = parse_client_hello(Data),
     ?log(debug, "TLS ClientHello=~p", [CliHlo]),
     ServerDigest = make_server_digest(Data, Secret),
     <<Zeroes:(?DIGEST_LEN - 4)/binary, _/binary>> = XoredDigest =
@@ -84,7 +108,15 @@ from_client_hello(Data, Secret) ->
     Response = [as_tls_frame(?TLS_REC_HANDSHAKE, SrvHello),
                 CC,
                 DD],
-    {ok, Response, SessionId, Timestamp, new()}.
+    Meta0 = #{session_id => SessionId,
+              timestamp => Timestamp},
+    Meta = case lists:keyfind(?EXT_SNI, 1, Extensions) of
+               {_, [{?EXT_SNI_HOST_NAME, Domain}]} ->
+                       Meta0#{sni_domain => Domain};
+               _ ->
+                   Meta0
+           end,
+    {ok, Response, Meta, new()}.
 
 
 parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, 512:16/unsigned-big, %Frame

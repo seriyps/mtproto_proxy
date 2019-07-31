@@ -58,6 +58,10 @@
         %% protocols will be immediately disallowed.
         {allowed_protocols, [mtp_fake_tls, mtp_secure, mtp_abridged, mtp_intermediate]},
 
+        %% Which domains to allow in TLS SNI
+        %% XXX: this option is experimental and will be removed later!
+        {tls_allowed_domains, [<<"en.wikipedia.org">>]},
+
         {init_dc_connections, 2},
         {clients_per_dc_connection, 300},
 

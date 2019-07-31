@@ -81,6 +81,7 @@ running_ports() ->
               end
       end, mtp_listeners()).
 
+
 %%====================================================================
 %% Internal functions
 %%====================================================================
@@ -171,8 +172,9 @@ build_urls(Host, Port, Secret, Protocols) ->
                            end, Protocols)),
     lists:map(
       fun(mtp_fake_tls) ->
-              RawSecret = mtp_handler:unhex(Secret),
-              ProtoSecret = base64url(<<16#ee, RawSecret/binary, "en.wikipedia.org">>),
+              %% Print just for 1st domain as example
+              {ok, [Domain | _]} = application:get_env(?APP, tls_allowed_domains),
+              ProtoSecret = mtp_fake_tls:format_secret(Secret, Domain),
               MkUrl(ProtoSecret);
          (mtp_secure) ->
               ProtoSecret = ["dd", Secret],
@@ -180,14 +182,6 @@ build_urls(Host, Port, Secret, Protocols) ->
          (normal) ->
               MkUrl(Secret)
       end, UrlTypes).
-
-base64url(Bin) ->
-    %% see https://hex.pm/packages/base64url
-    << << (urlencode_digit(D)) >> || <<D>> <= base64:encode(Bin), D =/= $= >>.
-
-urlencode_digit($/) -> $_;
-urlencode_digit($+) -> $-;
-urlencode_digit(D)  -> D.
 
 -ifdef(TEST).
 report(Fmt, Args) ->

@@ -288,12 +288,13 @@ handle_upstream_data(Bin, #state{codec = Codec0} = S0) ->
 
 
 parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
-                     #state{stage = tls_hello, secret = Secret, codec = Codec0} = S) when
+                     #state{stage = tls_hello, secret = Secret, codec = Codec0,
+                            addr = {Ip, _}, listener = Listener} = S) when
       byte_size(AllData) >= (?TLS_CLIENT_HELLO_LEN + 5) ->
     assert_protocol(mtp_fake_tls),
     <<Data:(?TLS_CLIENT_HELLO_LEN + 5)/binary, Tail/binary>> = AllData,
-    {ok, Response, SessionId, Timestamp, TlsCodec} = mtp_fake_tls:from_client_hello(Data, Secret),
-    maybe_check_tls_replay(SessionId, Timestamp),
+    {ok, Response, Meta, TlsCodec} = mtp_fake_tls:from_client_hello(Data, Secret),
+    check_tls_access(Listener, Ip, Meta),
     Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
     Codec = mtp_codec:push_back(tls, Tail, Codec1),
     ok = up_send_raw(Response, S),
@@ -354,9 +355,15 @@ maybe_check_replay(Packet) ->
             ok
     end.
 
-maybe_check_tls_replay(_SessionId, _Timestamp) ->
-    %% TODO
-    ok.
+check_tls_access(_Listener, _Ip, #{sni_domain := Domain}) ->
+    %% TODO validate timestamp!
+    %% TODO some more scalable solution
+    AllowedDomains = application:get_env(?APP, tls_allowed_domains, []),
+    lists:member(Domain, AllowedDomains)
+        orelse error({protocol_error, tls_sni_domain_not_allowed, Domain});
+check_tls_access(_, Ip, Meta) ->
+    error({protocol_error, tls_no_sni, {Ip, Meta}}).
+
 
 up_send(Packet, #state{stage = tunnel, codec = UpCodec} = S) ->
     %% ?log(debug, ">Up: ~p", [Packet]),
