@@ -1,6 +1,6 @@
 # Based on https://github.com/erlang/docker-erlang-example
 
-FROM erlang:alpine as builder
+FROM erlang:21-alpine as builder
 
 RUN apk add --no-cache git
 
@@ -17,7 +17,7 @@ RUN if [ ! -f config/prod-vm.args ]; then cp config/vm.args.example config/prod-
 
 RUN rebar3 as prod release
 
-FROM alpine
+FROM alpine:3.9
 RUN apk add --no-cache openssl && \
     apk add --no-cache ncurses-libs && \
     apk add --no-cache dumb-init
