@@ -42,7 +42,7 @@
 -endif.
 
 -type handle() :: pid().
--type upstream_opts() :: #{addr := mtp_config:netloc(), % IP/Port of TG client
+-type upstream_opts() :: #{addr := mtp_config:netloc_v4v6(), % IP/Port of TG client
                            ad_tag => binary()}.
 -type upstream() :: {
                 _UpsStatic ::{_ConnId :: mtp_rpc:conn_id(),

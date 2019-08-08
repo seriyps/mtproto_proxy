@@ -49,7 +49,7 @@
          dc_id :: {DcId :: integer(), Pool :: pid()} | undefined,
 
          ad_tag :: binary(),
-         addr :: mtp_config:netloc(),           % IP/Port of remote side
+         addr :: mtp_config:netloc_v4v6(),           % IP/Port of remote side
          started_at :: pos_integer(),
          timer_state = init :: init | hibernate | stop,
          timer :: gen_timeout:tout(),

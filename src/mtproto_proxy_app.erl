@@ -19,7 +19,7 @@
                         port := inet:port_number(),
                         secret := binary(),
                         tag := binary(),
-                        listen_ip => inet:ip4_addr()}.
+                        listen_ip => string()}.
 
 %%====================================================================
 %% API
@@ -69,11 +69,16 @@ running_ports() ->
                 ip := Ip,
                 port := Port} = maps:from_list(Opts),
               [Name, Secret, AdTag] = ProtoOpts,
-              #{name => Name,
-                listen_ip => inet:ntoa(Ip),
-                port => Port,
-                secret => Secret,
-                tag => AdTag}
+              case inet:ntoa(Ip) of
+                  {error, einval} ->
+                      error({invalid_ip, Ip});
+                  IpAddr ->
+                      #{name => Name,
+                        listen_ip => IpAddr,
+                        port => Port,
+                        secret => Secret,
+                        tag => AdTag}
+              end
       end, mtp_listeners()).
 
 %%====================================================================
@@ -84,14 +89,19 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
     ListenIpStr = maps:get(
                     listen_ip, P,
                     application:get_env(?APP, listen_ip, "0.0.0.0")),
-    {ok, ListenIp} = inet:parse_ipv4_address(ListenIpStr),
+    {ok, ListenIp} = inet:parse_address(ListenIpStr),
+    Family = case tuple_size(ListenIp) of
+                 4 -> inet;
+                 8 -> inet6
+             end,
     NumAcceptors = application:get_env(?APP, num_acceptors, 60),
     MaxConnections = application:get_env(?APP, max_connections, 10240),
     Res =
         ranch:start_listener(
           Name, ranch_tcp,
           #{socket_opts => [{ip, ListenIp},
-                            {port, Port}],
+                            {port, Port},
+                            Family],
             num_acceptors => NumAcceptors,
             max_connections => MaxConnections},
           mtp_handler, [Name, Secret, Tag]),

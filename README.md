@@ -246,6 +246,38 @@ You should disable all protocols other than `mtp_secure` by providing `allowed_p
       <..>
 ```
 
+### IPv6
+
+Currently proxy only supports client connections via IPv6, but can only connect to Telegram servers
+using IPv4.
+
+To enable IPv6, you should put IPv6 address in `listen_ip` config key.
+If you want proxy to accept clients on the same port with both IPv4 and IPv6, you should
+have 2 `ports` sections with the same `port`, `secret` and `tag`, but with different names and
+different `listen_ip` (one v4 and one v6):
+
+```erlang
+ {mtproto_proxy,
+  %% see src/mtproto_proxy.app.src for examples.
+  [
+   {ports,
+    [#{name => mtp_handler_all_ipv4,
+       listen_ip => "0.0.0.0",  % IPv4 address, eg 203.0.113.1
+       port => 1443,
+       secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
+       tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>},
+     #{name => mtp_handler_all_ipv6,
+       listen_ip => "::",  % IPv6 address, eg "2001:db8:85a3::8a2e:370:7334"
+       port => 1443,
+       secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
+       tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}
+    ]}
+   ]},
+
+ {lager,
+<...>
+```
+
 ### Tune resource consumption
 
 If your server have low amount of RAM, try to set

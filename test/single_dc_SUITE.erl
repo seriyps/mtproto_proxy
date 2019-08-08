@@ -14,7 +14,8 @@
          downstream_qlen_backpressure_case/1,
          config_change_case/1,
          replay_attack_case/1,
-         replay_attack_server_error_case/1
+         replay_attack_server_error_case/1,
+         ipv6_connect_case/1
         ]).
 
 -export([set_env/2,
@@ -375,26 +376,55 @@ replay_attack_server_error_case(Cfg) when is_list(Cfg) ->
 
 %% TODO: send a lot, not read, and then close - assert connection IDs are cleaned up
 
+%% @doc Test that it's possible to connect and communicate via IPv6
+ipv6_connect_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, "::1", 10000 + ?LINE, #{}, Cfg);
+ipv6_connect_case({post, Cfg}) ->
+    stop_single(Cfg);
+ipv6_connect_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    ConnCount = fun() ->
+                        mtp_test_metric:get_tags(
+                          count, [?APP, in_connection, total], [?FUNCTION_NAME])
+                end,
+    ?assertEqual(not_found, ConnCount()),
+    ?assertEqual(8, tuple_size(Host)),
+    Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
+    Data = crypto:strong_rand_bytes(64),
+    Cli1 = mtp_test_client:send(Data, Cli0),
+    {ok, Packet, Cli2} = mtp_test_client:recv_packet(Cli1, 1000),
+    ok = mtp_test_client:close(Cli2),
+    ?assertEqual(Data, Packet),
+    ?assertEqual(1, ConnCount()),
+    ok = mtp_test_metric:wait_for_value(
+           count, [?APP, in_connection_closed, total], [?FUNCTION_NAME], 1, 5000).
+
 %% Helpers
 
 setup_single(Name, MtpPort, DcCfg0, Cfg) ->
+    setup_single(Name, "127.0.0.1", MtpPort, DcCfg0, Cfg).
+
+setup_single(Name, MtpIpStr, MtpPort, DcCfg0, Cfg) ->
     {ok, Pid} = mtp_test_metric:start_link(),
     PubKey = crypto:strong_rand_bytes(128),
     DcId = 1,
-    Ip = {127, 0, 0, 1},
-    DcConf = [{DcId, Ip, MtpPort + 10}],
+    DcConf = [{DcId, {127, 0, 0, 1}, MtpPort + 10}],
     Secret = mtp_handler:hex(crypto:strong_rand_bytes(16)),
     Listeners = [#{name => Name,
                    port => MtpPort,
-                   listen_ip => "127.0.0.1",
+                   listen_ip => MtpIpStr,
                    secret => Secret,
                    tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}],
     application:load(mtproto_proxy),
     Cfg1 = set_env([{ports, Listeners}], Cfg),
     {ok, DcCfg} = mtp_test_datacenter:start_dc(PubKey, DcConf, DcCfg0),
     {ok, _} = application:ensure_all_started(mtproto_proxy),
+    {ok, MtpIp} = inet:parse_address(MtpIpStr),
     [{dc_id, DcId},
-     {mtp_host, Ip},
+     {mtp_host, MtpIp},
      {mtp_port, MtpPort},
      {mtp_secret, Secret},
      {dc_conf, DcCfg},
