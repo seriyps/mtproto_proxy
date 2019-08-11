@@ -158,7 +158,7 @@ active_metrics() ->
 
      {count, [?APP, protocol_error, total],
       "Proxy protocol errors",
-      #{labels => [reason]}},
+      #{labels => [listener, reason]}},
      {count, [?APP, protocol_ok, total],
       "Proxy upstream protocol type",
       #{labels => [listener, protocol]}},

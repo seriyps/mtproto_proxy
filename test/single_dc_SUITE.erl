@@ -128,7 +128,7 @@ packet_too_large_case(Cfg) when is_list(Cfg) ->
     Port = ?config(mtp_port, Cfg),
     Secret = ?config(mtp_secret, Cfg),
     ErrCount = fun(Tag) ->
-                       mtp_test_metric:get_tags(count, [?APP, protocol_error, total], [Tag])
+                       mtp_test_metric:get_tags(count, [?APP, protocol_error, total], [?FUNCTION_NAME, Tag])
                end,
     OkPacket = binary:copy(<<0>>, 64),
     BigPacket = binary:copy(<<0>>, 1024 * 1024 + 1024),
@@ -333,7 +333,7 @@ replay_attack_case(Cfg) when is_list(Cfg) ->
     Seed = crypto:strong_rand_bytes(58),
     ErrCount = fun() ->
                        mtp_test_metric:get_tags(
-                         count, [?APP, protocol_error, total], [replay_session_detected])
+                         count, [?APP, protocol_error, total], [?FUNCTION_NAME, replay_session_detected])
                end,
     ?assertEqual(not_found, ErrCount()),
     Cli1 = mtp_test_client:connect(Host, Port, Seed, Secret, DcId, mtp_secure),
@@ -342,7 +342,7 @@ replay_attack_case(Cfg) when is_list(Cfg) ->
     Cli2 = mtp_test_client:connect(Host, Port, Seed, Secret, DcId, mtp_secure),
     ?assertEqual(
        ok, mtp_test_metric:wait_for_value(
-             count, [?APP, protocol_error, total], [replay_session_detected], 1, 5000),
+             count, [?APP, protocol_error, total], [?FUNCTION_NAME, replay_session_detected], 1, 5000),
        {mtp_session_storage:status(),
         sys:get_state(mtp_test_metric)}),
     ?assertEqual(1, ErrCount()),
@@ -361,7 +361,7 @@ replay_attack_server_error_case(Cfg) when is_list(Cfg) ->
     Secret = ?config(mtp_secret, Cfg),
     ErrCount = fun() ->
                        mtp_test_metric:get_tags(
-                         count, [?APP, protocol_error, total], [srv_error_filtered])
+                         count, [?APP, protocol_error, total], [?FUNCTION_NAME, srv_error_filtered])
                end,
     ?assertEqual(not_found, ErrCount()),
     Cli1 = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
@@ -369,7 +369,7 @@ replay_attack_server_error_case(Cfg) when is_list(Cfg) ->
     _Cli2 = mtp_test_client:send(<<108, 254, 255, 255>>, Cli1),
     ?assertEqual(
        ok, mtp_test_metric:wait_for_value(
-             count, [?APP, protocol_error, total], [srv_error_filtered], 1, 5000),
+             count, [?APP, protocol_error, total], [?FUNCTION_NAME, srv_error_filtered], 1, 5000),
        {mtp_session_storage:status(),
         sys:get_state(mtp_test_metric)}),
     ?assertEqual(1, ErrCount()).

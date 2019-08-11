@@ -135,14 +135,15 @@ handle_cast({proxy_ans, Down, Data}, #state{down = Down, srv_error_filter = off}
     {ok, S1} = up_send(Data, S),
     ok = mtp_down_conn:ack(Down, 1, iolist_size(Data)),
     maybe_check_health(bump_timer(S1));
-handle_cast({proxy_ans, Down, ?SRV_ERROR = Data}, #state{down = Down, srv_error_filter = Filter,
-                                                         addr = {Ip, _}} = S) when Filter =/= off ->
+handle_cast({proxy_ans, Down, ?SRV_ERROR = Data},
+            #state{down = Down, srv_error_filter = Filter, listener = Listener,
+                   addr = {Ip, _}} = S) when Filter =/= off ->
     %% telegram server -> proxy
     %% Server replied with server error; it might be another kind of replay attack;
     %% Don't send this packet to client so proxy won't be fingerprinted
     ok = mtp_down_conn:ack(Down, 1, iolist_size(Data)),
     ?log(warning, "~s: protocol_error srv_error_filtered", [inet:ntoa(Ip)]),
-    mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [srv_error_filtered]}),
+    mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Listener, srv_error_filtered]}),
     {noreply,
      case Filter of
          first -> S#state{srv_error_filter = off};
@@ -182,7 +183,7 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
             %% Consider checking health here as well
             {noreply, bump_timer(S1)}
     catch error:{protocol_error, Type, Extra} ->
-            mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Type]}),
+            mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Listener, Type]}),
             ?log(warning, "~s: protocol_error ~p ~p", [inet:ntoa(Ip), Type, Extra]),
             {stop, normal, maybe_close_down(S)}
     end;
@@ -333,7 +334,7 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                         stage = tunnel},
                 hibernate));
         {error, Reason} when is_atom(Reason) ->
-            mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Reason]}),
+            mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Listener, Reason]}),
             error({protocol_error, Reason, Header})
     end;
 parse_upstream_data(Bin, #state{stage = Stage, codec = Codec0} = S) when Stage =/= tunnel ->
