@@ -113,13 +113,8 @@ decode_tls(Bin, #codec{have_tls = false} = S) ->
 decode_tls(<<>>, #codec{tls_buf = <<>>} = S) ->
     decode_crypto(<<>>, S);
 decode_tls(Bin, #codec{tls_state = TlsSt, tls_buf = <<>>} = S) ->
-    case mtp_fake_tls:try_decode_packet(Bin, TlsSt) of
-        {incomplete, TlsSt1} ->
-            %% XXX: actually, TLS doesn't store any mutable state...
-            decode_crypto(<<>>, S#codec{tls_state = TlsSt1});
-        {ok, Dec, Tail, TlsSt1} ->
-            decode_crypto(Dec, assert_overflow(S#codec{tls_state = TlsSt1, tls_buf = Tail}))
-    end;
+    {DecIolist, Tail, TlsSt1} = mtp_fake_tls:decode_all(Bin, TlsSt),
+    decode_crypto(iolist_to_binary(DecIolist), assert_overflow(S#codec{tls_state = TlsSt1, tls_buf = Tail}));
 decode_tls(Bin, #codec{tls_buf = Buf} = S) ->
     decode_tls(<<Buf/binary, Bin/binary>>, S#codec{tls_buf = <<>>}).
 

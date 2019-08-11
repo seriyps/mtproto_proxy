@@ -6,7 +6,9 @@
 -export([prop_obfuscated_secure_stream/1,
          prop_obfuscated_secure_duplex/1,
          prop_obfuscated_secure_duplex_multi/1,
-         prop_fullcbc_stream/1]).
+         prop_fullcbc_stream/1,
+         prop_tls_stream/1,
+         prop_tls_big_stream/1]).
 
 
 prop_obfuscated_secure_stream(doc) ->
@@ -147,6 +149,48 @@ mk_fullcbc_codec(EncKey, EncIv, DecKey, DecIv) ->
     mtp_codec:new(mtp_aes_cbc, Crypto,
                   mtp_full, Packet).
 
+
+prop_tls_stream(doc) ->
+    "Tests combination of fake-tls +  mtp_obfuscated + mtp_secure. It emulates fake-tls client".
+
+prop_tls_stream() ->
+    ?FORALL({Key, Iv, Stream}, stream_arg_set(), tls_obfuscated_secure_stream(Key, Iv, Stream)).
+
+
+
+prop_tls_big_stream(doc) ->
+    "Tests combination of fake-tls +  mtp_obfuscated + mtp_secure with packets >64kb. "
+        "So, single 'packet-layer' packet will be split to multiple TLS packets. "
+        "It emulates file uppload with fake-tls client".
+
+prop_tls_big_stream() ->
+    ?FORALL({Key, Iv, Stream}, tls_big_stream_arg_set(), tls_obfuscated_secure_stream(Key, Iv, Stream)).
+
+tls_big_stream_arg_set() ->
+    %% Packets more than 64kb but less than 512kb
+    Min = 64 * 1024 + 10,
+    Max = 512 * 1024,
+    proper_types:tuple(
+      [mtp_prop_gen:key(),
+       mtp_prop_gen:iv(),
+       proper_types:list(mtp_prop_gen:aligned_binary(4, Min, Max))
+      ]).
+
+
+tls_obfuscated_secure_stream(Key, Iv, Stream) ->
+    Codec0 = mk_tls_codec(Key, Iv, Key, Iv),
+    {BinStream, Codec2} =
+        lists:foldl(
+          fun(Bin, {Acc, Codec1}) ->
+                  {Data, Codec2} = mtp_codec:encode_packet(Bin, Codec1),
+                  {<<Acc/binary, (iolist_to_binary(Data))/binary>>,
+                   Codec2}
+          end, {<<>>, Codec0}, Stream),
+    {ResStream, _Codec3} = parse_stream(BinStream, Codec2),
+    ?assertEqual(Stream, ResStream),
+    true.
+
+
 parse_stream(Bin, Codec0) ->
     %% We want to split solid stream to smaller chunks to emulate network packet fragmentation
     Chunks = split_stream(Bin),
@@ -161,6 +205,15 @@ parse_stream(Bin, Codec0) ->
                   {Acc3, Codec3}
           end, {[], Codec0}, Chunks),
     {lists:reverse(DecodedRev), Codec}.
+
+mk_tls_codec(EncKey, EncIv, DecKey, DecIv) ->
+    Crypto = mtp_obfuscated:new(EncKey, EncIv, DecKey, DecIv),
+    Packet = mtp_secure:new(),
+    Tls = mtp_fake_tls:new(),
+    mtp_codec:new(mtp_obfuscated, Crypto,
+                  mtp_secure, Packet,
+                  true, Tls,
+                  30 * 1024 * 1024).
 
 split_stream(<<>>) -> [];
 split_stream(Bin) when byte_size(Bin) < 4 -> [Bin];

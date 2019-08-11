@@ -15,6 +15,7 @@
 -export([from_client_hello/2,
          new/0,
          try_decode_packet/2,
+         decode_all/2,
          encode_packet/2]).
 -export_type([codec/0, meta/0]).
 
@@ -176,17 +177,30 @@ new() ->
 
 -spec try_decode_packet(binary(), codec()) -> {ok, binary(), binary(), codec()}
                                                   | {incomplete, codec()}.
-try_decode_packet(<<?TLS_REC_DATA, ?TLS_12_VERSION, Size:16/unsigned-big,
+try_decode_packet(<<?TLS_12_DATA, Size:16/unsigned-big,
                     Data:Size/binary, Tail/binary>>, St) ->
     {ok, Data, Tail, St};
 try_decode_packet(<<?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, Size:16/unsigned-big,
                     _Data:Size/binary, Tail/binary>>, St) ->
     %% "Change cipher" are ignored
     try_decode_packet(Tail, St);
-try_decode_packet(Bin, St) when byte_size(Bin) =< ?MAX_PACKET_SIZE ->
+try_decode_packet(Bin, St) when byte_size(Bin) =< (?MAX_PACKET_SIZE + 5) ->  % 5 is ?TLS_12_DATA + Size:16 size
     {incomplete, St};
 try_decode_packet(Bin, _St) ->
     error({protocol_error, tls_max_size, byte_size(Bin)}).
+
+%% @doc decodes as much TLS packets as possible to single binary
+-spec decode_all(binary(), codec()) -> {Decoded :: binary(), Tail :: binary(), codec()}.
+decode_all(Bin, St) ->
+    decode_all(Bin, <<>>, St).
+
+decode_all(Bin, Acc, St0) ->
+    case try_decode_packet(Bin, St0) of
+        {incomplete, St} ->
+            {Acc, Bin, St};
+        {ok, Data, Tail, St} ->
+            decode_all(Tail, <<Acc/binary, Data/binary>>, St)
+    end.
 
 
 -spec encode_packet(binary(), codec()) -> {iodata(), codec()}.

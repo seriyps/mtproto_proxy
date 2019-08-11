@@ -8,6 +8,7 @@
          stream_16b/0,
          packet_16b/0,
          binary/2,
+         aligned_binary/3,
          key/0,
          iv/0,
          secret/0,
@@ -36,11 +37,15 @@ stream_16b() ->
 
 %% Binary of size between Min and Max
 binary(Min, Max) when Min < Max ->
-    TailSize = Max - Min,
-    ?LET({First, Tail}, {proper_types:binary(Min),
-                         proper_types:resize(TailSize,
-                                             proper_types:list(proper_types:byte()))},
-         iolist_to_binary([First | Tail])).
+    ?LET(Size, proper_types:integer(Min, Max), proper_types:binary(Size)).
+
+%% Binary of size between Min and Max aligned by Align
+aligned_binary(Align, Min0, Max0) when Min0 > Align,
+                                       Max0 > Min0 ->
+    Ceil = fun(V) -> V - (V rem Align) end,
+    Min = Ceil(Min0),
+    Max = Ceil(Max0),
+    ?LET(Size, proper_types:integer(Min, Max), proper_types:binary(Ceil(Size))).
 
 %% 32-byte encryption key: `binary()`
 key() ->
