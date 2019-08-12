@@ -359,9 +359,14 @@ maybe_check_replay(Packet) ->
 check_tls_access(_Listener, _Ip, #{sni_domain := Domain}) ->
     %% TODO validate timestamp!
     %% TODO some more scalable solution
-    AllowedDomains = application:get_env(?APP, tls_allowed_domains, []),
-    lists:member(Domain, AllowedDomains)
-        orelse error({protocol_error, tls_sni_domain_not_allowed, Domain});
+    case application:get_env(?APP, tls_allowed_domains, any) of
+        any ->
+            %% No limits
+            true;
+        AllowedDomains ->
+            lists:member(Domain, AllowedDomains)
+                orelse error({protocol_error, tls_sni_domain_not_allowed, Domain})
+    end;
 check_tls_access(_, Ip, Meta) ->
     error({protocol_error, tls_no_sni, {Ip, Meta}}).
 

@@ -13,10 +13,11 @@ all: config/prod-sys.config config/prod-vm.args
 .PHONY: test
 test:
 	$(REBAR3) xref
-	$(REBAR3) eunit
-	$(REBAR3) ct
-	$(REBAR3) proper -n 50
+	$(REBAR3) eunit -c
+	$(REBAR3) ct -c
+	$(REBAR3) proper -c -n 50
 	$(REBAR3) dialyzer
+	$(REBAR3) cover -v
 
 config/prod-sys.config: config/sys.config.example
 	[ -f $@ ] && diff $^ $@ || true

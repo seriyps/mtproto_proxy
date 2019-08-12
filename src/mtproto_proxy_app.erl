@@ -173,7 +173,11 @@ build_urls(Host, Port, Secret, Protocols) ->
     lists:map(
       fun(mtp_fake_tls) ->
               %% Print just for 1st domain as example
-              {ok, [Domain | _]} = application:get_env(?APP, tls_allowed_domains),
+              Domain = case application:get_env(?APP, tls_allowed_domains) of
+                           {ok, [Domain0 | _]} -> Domain0;
+                           _ ->
+                               <<"en.wikipedia.org">>
+                       end,
               ProtoSecret = mtp_fake_tls:format_secret(Secret, Domain),
               MkUrl(ProtoSecret);
          (mtp_secure) ->

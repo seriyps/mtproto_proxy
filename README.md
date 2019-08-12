@@ -258,7 +258,7 @@ You should disable all protocols other than `mtp_secure` by providing `allowed_p
 Another censorship circumvention technique. MTPRoto proxy protocol pretends to be
 HTTPS web traffic (technically speaking, TLSv1.3 + HTTP/2).
 It's possible to only allow connections with this protocol by changing `allowed_protocols` to
-be list with only `mtp_fake_tls`:
+be list with only `mtp_fake_tls`. You may also want to check `tls_allowed_domains` option.
 
 ```erlang
   {mtproto_proxy,
