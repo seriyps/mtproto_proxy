@@ -33,7 +33,8 @@
          extensions :: [{non_neg_integer(), any()}]
         }).
 
--define(MAX_PACKET_SIZE, 65535).      % sizeof(uint16) - 1
+-define(MAX_IN_PACKET_SIZE, 65535).      % sizeof(uint16) - 1
+-define(MAX_OUT_PACKET_SIZE, 16384).     % 2^14 https://tools.ietf.org/html/rfc8446#section-5.1
 
 -define(TLS_10_VERSION, 3, 1).
 -define(TLS_12_VERSION, 3, 3).
@@ -184,7 +185,7 @@ try_decode_packet(<<?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, Size:16/unsigned-bi
                     _Data:Size/binary, Tail/binary>>, St) ->
     %% "Change cipher" are ignored
     try_decode_packet(Tail, St);
-try_decode_packet(Bin, St) when byte_size(Bin) =< (?MAX_PACKET_SIZE + 5) ->  % 5 is ?TLS_12_DATA + Size:16 size
+try_decode_packet(Bin, St) when byte_size(Bin) =< (?MAX_IN_PACKET_SIZE + 5) ->  % 5 is ?TLS_12_DATA + Size:16 size
     {incomplete, St};
 try_decode_packet(Bin, _St) ->
     error({protocol_error, tls_max_size, byte_size(Bin)}).
@@ -207,9 +208,9 @@ decode_all(Bin, Acc, St0) ->
 encode_packet(Bin, St) ->
     {encode_as_frames(Bin), St}.
 
-encode_as_frames(Bin) when byte_size(Bin) =< ?MAX_PACKET_SIZE ->
+encode_as_frames(Bin) when byte_size(Bin) =< ?MAX_OUT_PACKET_SIZE ->
     as_tls_data_frame(Bin);
-encode_as_frames(<<Chunk:?MAX_PACKET_SIZE/binary, Tail/binary>>) ->
+encode_as_frames(<<Chunk:?MAX_OUT_PACKET_SIZE/binary, Tail/binary>>) ->
     [as_tls_data_frame(Chunk) | encode_as_frames(Tail)].
 
 as_tls_data_frame(Bin) ->

@@ -167,9 +167,9 @@ prop_tls_big_stream() ->
     ?FORALL({Key, Iv, Stream}, tls_big_stream_arg_set(), tls_obfuscated_secure_stream(Key, Iv, Stream)).
 
 tls_big_stream_arg_set() ->
-    %% Packets more than 64kb but less than 512kb
-    Min = 64 * 1024 + 10,
-    Max = 512 * 1024,
+    %% Packets more than 2^14b but less than 128kb
+    Min = 16 * 1024 + 10,
+    Max = 128 * 1024,
     proper_types:tuple(
       [mtp_prop_gen:key(),
        mtp_prop_gen:iv(),
