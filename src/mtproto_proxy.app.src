@@ -1,6 +1,6 @@
 {application, mtproto_proxy,
  [{description, "High-performance Telegram MTProto proxy server"},
-  {vsn, "0.5.1"},
+  {vsn, "0.6.0"},
   {registered, []},
   {mod, { mtproto_proxy_app, []}},
   {applications,
