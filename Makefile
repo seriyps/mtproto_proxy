@@ -38,7 +38,7 @@ $(LOGDIR):
 
 install: user $(LOGDIR)
 	mkdir -p $(prefix)
-	cp -n -r _build/prod/rel/mtp_proxy $(prefix)/mtp_proxy/
+	cp -r _build/prod/rel/mtp_proxy $(prefix)/
 	mkdir -p $(prefix)/mtp_proxy/log/
 	chmod 777 $(prefix)/mtp_proxy/log/
 	install -D config/mtproto-proxy.service $(SERVICE)

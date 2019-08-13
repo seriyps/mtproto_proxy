@@ -23,6 +23,26 @@ Features
 * Small codebase compared to official one, code is covered by automated tests
 * A lots of metrics could be exported (optional)
 
+How to install - one-line interactive installer
+-----------------------------------------------
+
+This command will run [interactive script](https://gist.github.com/seriyps/dc00ad91bfd8a2058f30845cd0daed83)
+that will install and configure proxy for your Ubuntu 18.04 server.
+It will ask if you want to change default port/secret/ad-tag/protocols:
+
+```bash
+curl -L -o mtp_install.sh https://git.io/fj5ru && bash mtp_install.sh
+```
+
+You can also just provide port/secret/ad-tag/protocols as command line arguments:
+
+```bash
+curl -L -o mtp_install.sh https://git.io/fj5ru && bash mtp_install.sh -p 443 -s d0d6e111bada5511fcce9584deadbeef -t dcbe8f1493fa4cd9ab300891c0b5b326 -a dd -a tls
+```
+
+It does the same as described in [How to start OS-install - detailed](#how-to-start-os-install---detailed) but
+generates config-file for you automatically.
+
 How to start - docker
 ---------------------
 
