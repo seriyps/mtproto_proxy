@@ -38,6 +38,7 @@
 
 -define(TLS_10_VERSION, 3, 1).
 -define(TLS_12_VERSION, 3, 3).
+-define(TLS_13_VERSION, 3, 4).
 -define(TLS_REC_CHANGE_CIPHER, 20).
 -define(TLS_REC_HANDSHAKE, 22).
 -define(TLS_REC_DATA, 23).
@@ -60,6 +61,10 @@
 
 -define(EXT_SNI, 0).
 -define(EXT_SNI_HOST_NAME, 0).
+
+-define(EXT_KEY_SHARE, 51).
+
+-define(EXT_SUPPORTED_VERSIONS, 43).
 
 -define(APP, mtproto_proxy).
 
@@ -97,16 +102,17 @@ from_client_hello(Data, Secret) ->
     <<Zeroes:(?DIGEST_LEN - 4)/binary, _/binary>> = XoredDigest =
         crypto:exor(ClientDigest, ServerDigest),
     lists:all(fun(B) -> B == 0 end, binary_to_list(Zeroes)) orelse
-        error({protocol_error, invalid_tls_digest, XoredDigest}),
+        error({protocol_error, tls_invalid_digest, XoredDigest}),
     <<_:(?DIGEST_LEN - 4)/binary, Timestamp:32/unsigned-little>> = XoredDigest,
+    KeyShare = make_key_share(Extensions),
+    SrvHello0 = make_srv_hello(binary:copy(<<0>>, ?DIGEST_LEN), SessionId, KeyShare),
     FakeHttpData = crypto:strong_rand_bytes(rand:uniform(256)),
-    SrvHello0 = make_srv_hello(binary:copy(<<0>>, ?DIGEST_LEN), SessionId),
     Response0 = [_, CC, DD] =
         [as_tls_frame(?TLS_REC_HANDSHAKE, SrvHello0),
          as_tls_frame(?TLS_REC_CHANGE_CIPHER, [1]),
          as_tls_frame(?TLS_REC_DATA, FakeHttpData)],
     SrvHelloDigest = crypto:hmac(sha256, Secret, [ClientDigest | Response0]),
-    SrvHello = make_srv_hello(SrvHelloDigest, SessionId),
+    SrvHello = make_srv_hello(SrvHelloDigest, SessionId, KeyShare),
     Response = [as_tls_frame(?TLS_REC_HANDSHAKE, SrvHello),
                 CC,
                 DD],
@@ -149,9 +155,11 @@ parse_extensions(Exts) ->
      || <<Type:16/unsigned-big, Length:16/unsigned-big, Data:Length/binary>> <= Exts].
 
 parse_extension(?EXT_SNI, <<ListLen:16/unsigned-big, List:ListLen/binary>>) ->
-    SNIList = [{Type, Value}
-               || <<Type, Len:16/unsigned-big, Value:Len/binary>> <= List],
-    SNIList;
+    [{Type, Value}
+     || <<Type, Len:16/unsigned-big, Value:Len/binary>> <= List];
+parse_extension(?EXT_KEY_SHARE, <<Len:16/unsigned-big, Exts:Len/binary>>) ->
+    [{Group, Key}
+     || <<Group:16/unsigned-big, KeyLen:16/unsigned-big, Key:KeyLen/binary>> <= Exts];
 parse_extension(_Type, Data) ->
     Data.
 
@@ -160,16 +168,66 @@ make_server_digest(<<Left:?DIGEST_POS/binary, _:?DIGEST_LEN/binary, Right/binary
     Msg = [Left, binary:copy(<<0>>, ?DIGEST_LEN), Right],
     crypto:hmac(sha256, Secret, Msg).
 
-make_srv_hello(Digest, SessionId) ->
+make_key_share(Exts) ->
+    case lists:keyfind(?EXT_KEY_SHARE, 1, Exts) of
+        {_, KeyShares} ->
+            SupportedKeyShares =
+                lists:dropwhile(
+                  fun({Group, Key}) ->
+                          not (
+                            byte_size(Key) < 128
+                            andalso
+                            lists:member(       % https://tools.ietf.org/html/rfc8446#appendix-B.3.1.4
+                              Group, [% secp256r1
+                                      16#0017,
+                                      % secp384r1
+                                      16#0018,
+                                      % secp521r1
+                                      16#0019,
+                                      % x25519
+                                      16#001D,
+                                      % x448
+                                      16#001E,
+                                      % ffdhe2048
+                                      16#0100,
+                                      % ffdhe3072
+                                      16#0101,
+                                      % ffdhe4096
+                                      16#0102,
+                                      % ffdhe6144
+                                      16#0103,
+                                      % ffdhe8192
+                                      16#0104])
+                           )
+                  end, KeyShares),
+            case SupportedKeyShares of
+                [] ->
+                    error({protocol_error, tls_unsupported_key_shares, KeyShares});
+                [{KSGroup, KSKey} | _] ->
+                    {KSGroup, crypto:strong_rand_bytes(byte_size(KSKey))}
+            end;
+        _ ->
+            error({protocol_error, tls_missing_key_share_ext, Exts})
+    end.
+
+make_srv_hello(Digest, SessionId, {KeyShareGroup, KeyShareKey}) ->
+    %% https://tools.ietf.org/html/rfc8446#section-4.1.3
+    KeyShareEntity = <<KeyShareGroup:16/unsigned-big, (byte_size(KeyShareKey)):16/unsigned-big,
+                       KeyShareKey/binary>>,
+    Extensions =
+        [<<?EXT_KEY_SHARE:16/unsigned-big, (byte_size(KeyShareEntity)):16/unsigned-big>>,
+         KeyShareEntity,
+         <<?EXT_SUPPORTED_VERSIONS:16/unsigned-big, 2:16/unsigned-big, ?TLS_13_VERSION>>],
     SessionSize = byte_size(SessionId),
-    Payload = <<?TLS_12_VERSION,
-                Digest:?DIGEST_LEN/binary,
-                SessionSize,
-                SessionId:SessionSize/binary,
-                ?TLS_CIPHERSUITE,
-                0,
-                ?TLS_EXTENSIONS>>,
-    [<<?TLS_TAG_SRV_HELLO, (byte_size(Payload)):24/unsigned-big>> | Payload].
+    Payload = [<<?TLS_12_VERSION,
+                 Digest:?DIGEST_LEN/binary,
+                 SessionSize,
+                 SessionId:SessionSize/binary,
+                 ?TLS_CIPHERSUITE,
+                 0,                              % Compression method
+                 (iolist_size(Extensions)):16/unsigned-big>>
+                   | Extensions],
+    [<<?TLS_TAG_SRV_HELLO, (iolist_size(Payload)):24/unsigned-big>> | Payload].
 
 
 -spec new() -> codec().
