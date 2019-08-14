@@ -17,6 +17,12 @@
          try_decode_packet/2,
          decode_all/2,
          encode_packet/2]).
+-ifdef(TEST).
+-export([make_client_hello/2,
+         make_client_hello/4,
+         parse_server_hello/1]).
+-endif.
+
 -export_type([codec/0, meta/0]).
 
 -include_lib("hut/include/hut.hrl").
@@ -32,6 +38,9 @@
          compression_methods :: list(),
          extensions :: [{non_neg_integer(), any()}]
         }).
+
+-define(u16, 16/unsigned-big).
+-define(u24, 24/unsigned-big).
 
 -define(MAX_IN_PACKET_SIZE, 65535).      % sizeof(uint16) - 1
 -define(MAX_OUT_PACKET_SIZE, 16384).     % 2^14 https://tools.ietf.org/html/rfc8446#section-5.1
@@ -51,12 +60,6 @@
 -define(TLS_TAG_CLI_HELLO, 1).
 -define(TLS_TAG_SRV_HELLO, 2).
 -define(TLS_CIPHERSUITE, 192, 47).
--define(TLS_EXTENSIONS,
-        0, 18,                                  % Extensions length
-        255, 1, 0, 1, 0,                        % renegotiation_info
-        0, 5, 0, 0,                             % status_request
-        0, 16, 0, 5, 0, 3, 2, 104, 50           % ALPN
-       ).
 -define(TLS_CHANGE_CIPHER, ?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, 0, 1, 1).
 
 -define(EXT_SNI, 0).
@@ -90,7 +93,7 @@ urlencode_digit($/) -> $_;
 urlencode_digit($+) -> $-;
 urlencode_digit(D)  -> D.
 
-
+%% Parse fake-TLS "ClientHello" packet and generate "ServerHello + ChangeCipher + ApplicationData"
 -spec from_client_hello(binary(), binary()) ->
                                {ok, iodata(), meta(), codec()}.
 from_client_hello(Data, Secret) ->
@@ -99,11 +102,10 @@ from_client_hello(Data, Secret) ->
                   extensions = Extensions} = CliHlo = parse_client_hello(Data),
     ?log(debug, "TLS ClientHello=~p", [CliHlo]),
     ServerDigest = make_server_digest(Data, Secret),
-    <<Zeroes:(?DIGEST_LEN - 4)/binary, _/binary>> = XoredDigest =
+    <<Zeroes:(?DIGEST_LEN - 4)/binary, Timestamp:32/unsigned-little>> = XoredDigest =
         crypto:exor(ClientDigest, ServerDigest),
     lists:all(fun(B) -> B == 0 end, binary_to_list(Zeroes)) orelse
         error({protocol_error, tls_invalid_digest, XoredDigest}),
-    <<_:(?DIGEST_LEN - 4)/binary, Timestamp:32/unsigned-little>> = XoredDigest,
     KeyShare = make_key_share(Extensions),
     SrvHello0 = make_srv_hello(binary:copy(<<0>>, ?DIGEST_LEN), SessionId, KeyShare),
     FakeHttpData = crypto:strong_rand_bytes(rand:uniform(256)),
@@ -127,13 +129,13 @@ from_client_hello(Data, Secret) ->
     {ok, Response, Meta, new()}.
 
 
-parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, 512:16/unsigned-big, %Frame
-                     ?TLS_TAG_CLI_HELLO, 508:24/unsigned-big, ?TLS_12_VERSION,
+parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, 512:?u16, %Frame
+                     ?TLS_TAG_CLI_HELLO, 508:?u24, ?TLS_12_VERSION,
                      Random:?DIGEST_LEN/binary,
                      SessIdLen, SessId:SessIdLen/binary,
-                     CipherSuitesLen:16/unsigned-big, CipherSuites:CipherSuitesLen/binary,
+                     CipherSuitesLen:?u16, CipherSuites:CipherSuitesLen/binary,
                      CompMethodsLen, CompMethods:CompMethodsLen/binary,
-                     ExtensionsLen:16/unsigned-big, Extensions:ExtensionsLen/binary>>
+                     ExtensionsLen:?u16, Extensions:ExtensionsLen/binary>>
                      %% _/binary>>
                   ) ->
     #client_hello{
@@ -145,21 +147,21 @@ parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, 512:16/unsigned-big, %
       }.
 
 parse_suites(Bin) ->
-    [Suite || <<Suite:16/unsigned-big>> <= Bin].
+    [Suite || <<Suite:?u16>> <= Bin].
 
 parse_compression(Bin) ->
     [Bin].                                      %TODO: just binary_to_list(Bin)
 
 parse_extensions(Exts) ->
     [{Type, parse_extension(Type, Data)}
-     || <<Type:16/unsigned-big, Length:16/unsigned-big, Data:Length/binary>> <= Exts].
+     || <<Type:?u16, Length:?u16, Data:Length/binary>> <= Exts].
 
-parse_extension(?EXT_SNI, <<ListLen:16/unsigned-big, List:ListLen/binary>>) ->
+parse_extension(?EXT_SNI, <<ListLen:?u16, List:ListLen/binary>>) ->
     [{Type, Value}
-     || <<Type, Len:16/unsigned-big, Value:Len/binary>> <= List];
-parse_extension(?EXT_KEY_SHARE, <<Len:16/unsigned-big, Exts:Len/binary>>) ->
+     || <<Type, Len:?u16, Value:Len/binary>> <= List];
+parse_extension(?EXT_KEY_SHARE, <<Len:?u16, Exts:Len/binary>>) ->
     [{Group, Key}
-     || <<Group:16/unsigned-big, KeyLen:16/unsigned-big, Key:KeyLen/binary>> <= Exts];
+     || <<Group:?u16, KeyLen:?u16, Key:KeyLen/binary>> <= Exts];
 parse_extension(_Type, Data) ->
     Data.
 
@@ -212,12 +214,11 @@ make_key_share(Exts) ->
 
 make_srv_hello(Digest, SessionId, {KeyShareGroup, KeyShareKey}) ->
     %% https://tools.ietf.org/html/rfc8446#section-4.1.3
-    KeyShareEntity = <<KeyShareGroup:16/unsigned-big, (byte_size(KeyShareKey)):16/unsigned-big,
-                       KeyShareKey/binary>>,
+    KeyShareEntity = <<KeyShareGroup:?u16, (byte_size(KeyShareKey)):?u16, KeyShareKey/binary>>,
     Extensions =
-        [<<?EXT_KEY_SHARE:16/unsigned-big, (byte_size(KeyShareEntity)):16/unsigned-big>>,
+        [<<?EXT_KEY_SHARE:?u16, (byte_size(KeyShareEntity)):?u16>>,
          KeyShareEntity,
-         <<?EXT_SUPPORTED_VERSIONS:16/unsigned-big, 2:16/unsigned-big, ?TLS_13_VERSION>>],
+         <<?EXT_SUPPORTED_VERSIONS:?u16, 2:?u16, ?TLS_13_VERSION>>],
     SessionSize = byte_size(SessionId),
     Payload = [<<?TLS_12_VERSION,
                  Digest:?DIGEST_LEN/binary,
@@ -225,10 +226,81 @@ make_srv_hello(Digest, SessionId, {KeyShareGroup, KeyShareKey}) ->
                  SessionId:SessionSize/binary,
                  ?TLS_CIPHERSUITE,
                  0,                              % Compression method
-                 (iolist_size(Extensions)):16/unsigned-big>>
+                 (iolist_size(Extensions)):?u16>>
                    | Extensions],
-    [<<?TLS_TAG_SRV_HELLO, (iolist_size(Payload)):24/unsigned-big>> | Payload].
+    [<<?TLS_TAG_SRV_HELLO, (iolist_size(Payload)):?u24>> | Payload].
 
+-ifdef(TEST).
+%% Generate Fake-TLS "ClientHello". Used for tests only.
+make_client_hello(Secret, SniDomain) ->
+    make_client_hello(erlang:system_time(second),
+                      crypto:strong_rand_bytes(32),
+                      Secret, SniDomain).
+
+make_client_hello(Timestamp, SessionId, HexSecret, SniDomain) when byte_size(HexSecret) == 32 ->
+    make_client_hello(Timestamp, SessionId, mtp_handler:unhex(HexSecret), SniDomain);
+make_client_hello(Timestamp, SessionId, Secret, SniDomain) when byte_size(SessionId) == 32,
+                                                                byte_size(Secret) == 16 ->
+    %% Wireshark capture from Telegram Desktop
+    CipherSuites =
+        mtp_handler:unhex(<<"eaea130113021303c02bc02fc02cc030cca9cca8c013c014009c009d002f0035000a">>),
+    CSLen = byte_size(CipherSuites),
+
+    SNI = make_sni([SniDomain]),
+    %% Wireshark capture from Telegram Desktop
+    KeyShare =
+        mtp_handler:unhex(
+          <<"0033002b00295a5a000100001d0020a4146c3e8573565bb5f5c877a88a98dcbbd46a9b3ca1ab3df7217cc33b4b6d2c">>),
+    SupportedVersions =
+        mtp_handler:unhex(<<"002b000b0a1a1a0304030303020301">>),
+    ExtLen = 401,                               % From wireshark
+    RealExtensions = <<KeyShare/binary, SupportedVersions/binary, SNI/binary>>,
+    Extensions = add_padding_ext(RealExtensions, ExtLen),
+    (ExtLen == byte_size(Extensions)) orelse error({bad_ext_len, byte_size(Extensions)}),
+
+    SessIdLen = byte_size(SessionId),
+    Pack = fun(FakeRandom) ->
+                   <<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, 512:?u16,
+                     ?TLS_TAG_CLI_HELLO, 508:?u24, ?TLS_12_VERSION,
+                     FakeRandom:?DIGEST_LEN/binary,
+                     SessIdLen, SessionId:SessIdLen/binary,
+                     CSLen:?u16, CipherSuites:CSLen/binary,
+                     1, 0,                                        %Compression methods
+                     ExtLen:?u16, Extensions:ExtLen/binary>>
+           end,
+    FakeRandom0 = binary:copy(<<0>>, ?DIGEST_LEN),
+    Hello0 = Pack(FakeRandom0),
+    Digest = crypto:hmac(sha256, Secret, Hello0),
+    EncTimestamp = <<(binary:copy(<<0>>, ?DIGEST_LEN - 4))/binary, Timestamp:32/unsigned-little>>,
+    FakeRandom = crypto:exor(Digest, EncTimestamp),
+    Pack(FakeRandom).
+
+make_sni(Domains) ->
+    SniListItems = << <<?EXT_SNI_HOST_NAME, (byte_size(Domain)):?u16, Domain/binary>>
+                      || Domain <- Domains >>,
+    ItemsLen = byte_size(SniListItems),
+    <<?EXT_SNI:?u16, (ItemsLen + 2):?u16, ItemsLen:?u16, SniListItems/binary>>.
+
+add_padding_ext(RealExtensions, ExtLen) ->
+    RealExtLen = byte_size(RealExtensions),
+    PadSize = ExtLen - RealExtLen - 4,
+    PaddingExt = <<21:?u16,                          %EXT_PADDING
+                   PadSize:?u16,
+                   (binary:copy(<<0>>, PadSize))/binary>>,
+    <<RealExtensions/binary, PaddingExt/binary>>.
+
+%% Parses "ServerHello" (the one produced by from_client_hello/2). Used for tests only.
+parse_server_hello(<<?TLS_REC_HANDSHAKE, ?TLS_12_VERSION, HSLen:?u16, Handshake:HSLen/binary,
+                     ?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, CCLen:?u16, ChangeCipher:CCLen/binary,
+                     ?TLS_REC_DATA, ?TLS_12_VERSION, DLen:?u16, Data:DLen/binary,
+                     Tail/binary>>) ->
+    {Handshake, ChangeCipher, Data, Tail};
+parse_server_hello(B) when byte_size(B) < (512 + 5) ->
+    incomplete.
+
+-endif.
+
+%% Data stream codec
 
 -spec new() -> codec().
 new() ->
@@ -236,10 +308,9 @@ new() ->
 
 -spec try_decode_packet(binary(), codec()) -> {ok, binary(), binary(), codec()}
                                                   | {incomplete, codec()}.
-try_decode_packet(<<?TLS_12_DATA, Size:16/unsigned-big,
-                    Data:Size/binary, Tail/binary>>, St) ->
+try_decode_packet(<<?TLS_12_DATA, Size:?u16, Data:Size/binary, Tail/binary>>, St) ->
     {ok, Data, Tail, St};
-try_decode_packet(<<?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, Size:16/unsigned-big,
+try_decode_packet(<<?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, Size:?u16,
                     _Data:Size/binary, Tail/binary>>, St) ->
     %% "Change cipher" are ignored
     try_decode_packet(Tail, St);
@@ -277,4 +348,4 @@ as_tls_data_frame(Bin) ->
 -spec as_tls_frame(byte(), iodata()) -> iodata().
 as_tls_frame(Type, Data) ->
     Size = iolist_size(Data),
-    [<<Type, ?TLS_12_VERSION, Size:16/unsigned-big>> | Data].
+    [<<Type, ?TLS_12_VERSION, Size:?u16>> | Data].

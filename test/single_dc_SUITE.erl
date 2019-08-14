@@ -9,6 +9,7 @@
 
 -export([echo_secure_case/1,
          echo_abridged_many_packets_case/1,
+         echo_tls_case/1,
          packet_too_large_case/1,
          downstream_size_backpressure_case/1,
          downstream_qlen_backpressure_case/1,
@@ -115,6 +116,24 @@ echo_abridged_many_packets_case(Cfg) when is_list(Cfg) ->
                  mtp_test_metric:get_tags(
                    histogram, [?APP, tg_packet_size, bytes],
                    [upstream_to_downstream])).
+
+
+%% @doc tests that it's possible to connect and communicate using fake-tls protocol
+echo_tls_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
+echo_tls_case({post, Cfg}) ->
+    stop_single(Cfg);
+echo_tls_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, {mtp_fake_tls, <<"example.com">>}),
+    Data = crypto:strong_rand_bytes(64),
+    Cli1 = mtp_test_client:send(Data, Cli0),
+    {ok, Packet, Cli2} = mtp_test_client:recv_packet(Cli1, 1000),
+    ok = mtp_test_client:close(Cli2),
+    ?assertEqual(Data, Packet).
 
 
 %% @doc test that client trying to send too big packets will be force-disconnected

@@ -7,9 +7,7 @@
 
 -module(mtp_obfuscated).
 -behaviour(mtp_codec).
--export([client_create/3,
-         client_create/4,
-         from_header/2,
+-export([from_header/2,
          new/4,
          encrypt/2,
          decrypt/2,
@@ -17,6 +15,10 @@
          encode_packet/2
         ]).
 -export([bin_rev/1]).
+-ifdef(TEST).
+-export([client_create/3,
+         client_create/4]).
+-endif.
 
 -export_type([codec/0]).
 
@@ -32,7 +34,7 @@
 
 -opaque codec() :: #st{}.
 
-
+-ifdef(TEST).
 client_create(Secret, Protocol, DcId) ->
     client_create(crypto:strong_rand_bytes(58),
                   Secret, Protocol, DcId).
@@ -90,6 +92,7 @@ encode_protocol(mtp_secure) ->
 %% 4byte
 encode_dc_id(DcId) ->
     <<DcId:16/signed-little-integer>>.
+-endif.
 
 %% @doc creates new obfuscated stream (MTProto proxy format)
 -spec from_header(binary(), binary()) -> {ok, integer(), mtp_codec:packet_codec(), codec()}

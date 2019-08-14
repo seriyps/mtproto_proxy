@@ -46,7 +46,9 @@ command(#st{open = [], ever_opened = EO}) ->
 command(#st{open = L, ever_opened = EO}) ->
     proper_types:frequency(
       [
-       {1, {call, ?MODULE, connect, [EO, mtp_prop_gen:codec()]}},
+       {1, {call, ?MODULE, connect, [EO, proper_types:oneof(
+                                           [mtp_prop_gen:codec(),
+                                            {mtp_fake_tls, <<"en.wikipedia.org">>}])]}},
        {5, {call, ?MODULE, echo_packet, [proper_types:oneof(L), proper_types:binary()]}},
        {2, {call, ?MODULE, close, [proper_types:oneof(L)]}},
        {2, {call, ?MODULE, ask_for_close, [proper_types:oneof(L)]}}
@@ -108,8 +110,9 @@ run_cmds(Cmds) ->
     ?WHENFAIL(io:format("History: ~p\n"
                         "State: ~w\n"
                         "ServerState: ~p\n"
+                        "Metrics: ~p\n"
                         "Result: ~p\n",
-                        [History, State, ServerState, Result]),
+                        [History, State, ServerState, Metrics, Result]),
               proper:conjunction(
                 [{state_ok, check_state(State, ServerState, Metrics, ShimDump)},
                  {result_ok, Result =:= ok}])).
