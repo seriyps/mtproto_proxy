@@ -15,6 +15,7 @@
 -export([start_link/0]).
 -export([increment/1,
          decrement/1,
+         get/1,
          flush/0]).
 
 %% gen_server callbacks
@@ -35,7 +36,7 @@ increment(Key) ->
 
 -spec decrement(key()) -> integer().
 decrement(Key) ->
-    try ets:update_counter(?TAB, Key, 1) of
+    try ets:update_counter(?TAB, Key, -1) of
         New when New =< 0 ->
             ets:delete(?TAB, Key),
             0;
@@ -43,6 +44,13 @@ decrement(Key) ->
     catch error:badarg ->
             %% already removed
             0
+    end.
+
+-spec get(key()) -> non_neg_integer().
+get(Key) ->
+    case ets:lookup(?TAB, Key) of
+        [] -> 0;
+        [{_, V}] -> V
     end.
 
 %% @doc Clean all counters

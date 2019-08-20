@@ -318,10 +318,10 @@ If list is empty, no limits will be checked.
 
 Following policies are supported:
 
-* `{max_connections, KEYS, NUMBER}` - EXPERIMENTAL! if there are more than NUMBER connections with
-  KEYS to the proxy, new connections with those KEYS will be rejected
 * `{in_table, KEY, TABLE_NAME}` - only allow connections if KEY is present in TABLE_NAME (whitelist)
 * `{not_in_table, KEY, TABLE_NAME}` - only allow connections if KEY is *not* present in TABLE_NAME (blacklist)
+* `{max_connections, KEYS, NUMBER}` - EXPERIMENTAL! if there are more than NUMBER connections with
+  KEYS to the proxy, new connections with those KEYS will be rejected.
 
 Where:
 

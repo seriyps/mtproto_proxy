@@ -214,12 +214,18 @@ handle_info(Other, S) ->
     {noreply, S}.
 
 terminate(_Reason, #state{started_at = Started, listener = Listener,
-                          addr = {Ip, _}, policy_state = MaybeSni} = S) ->
-    try mtp_policy:dec(
-          application:get_env(?APP, policy, []),
-          Listener, Ip, MaybeSni)
-    catch T:R ->
-            ?log(warning, "Failed to decrement policy: ~p:~p", [T, R])
+                          addr = {Ip, _}, policy_state = PolicyState} = S) ->
+    case PolicyState of
+        {ok, TlsDomain} ->
+            try mtp_policy:dec(
+                  application:get_env(?APP, policy, []),
+                  Listener, Ip, TlsDomain)
+            catch T:R ->
+                    ?log(warning, "Failed to decrement policy: ~p:~p", [T, R])
+            end;
+        _ ->
+            %% Failed before policy was stored in state. Eg, because of "policy_error"
+            ok
     end,
     maybe_close_down(S),
     mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Listener]}),
@@ -306,25 +312,26 @@ parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
     check_tls_policy(Listener, Ip, Meta),
     Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
     Codec = mtp_codec:push_back(tls, Tail, Codec1),
-    ok = up_send_raw(Response, S),
+    ok = up_send_raw(Response, S),        %FIXME: if this send fail, we will get counter policy leak
     {ok, S#state{codec = Codec, stage = init,
-                 policy_state = maps:get(sni_domain, Meta, undefined)}};
+                 policy_state = {ok, maps:get(sni_domain, Meta, undefined)}}};
 parse_upstream_data(<<?TLS_START, _/binary>> = Data, #state{stage = init} = S) ->
     parse_upstream_data(Data, S#state{stage = tls_hello});
 parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                      #state{stage = init, secret = Secret, listener = Listener, codec = Codec0,
-                            ad_tag = Tag, addr = {Ip, _} = Addr} = S) ->
+                            ad_tag = Tag, addr = {Ip, _} = Addr, policy_state = PState0} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
             maybe_check_replay(Header),
-            ProtoToReport =
+            {ProtoToReport, PState} =
                 case mtp_codec:info(tls, Codec0) of
                     {true, _} when PacketLayerMod == mtp_secure ->
-                        mtp_secure_fake_tls;
+                        {mtp_secure_fake_tls, PState0};
                     {false, _} ->
                         assert_protocol(PacketLayerMod),
                         check_policy(Listener, Ip, undefined),
-                        PacketLayerMod
+                        %FIXME: if any codebelow fail, we will get counter policy leak
+                        {PacketLayerMod, {ok, undefined}}
                 end,
             mtp_metric:count_inc([?APP, protocol_ok, total],
                                  1, #{labels => [Listener, ProtoToReport]}),
@@ -341,6 +348,7 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                 S#state{down = Downstream,
                         dc_id = {RealDcId, Pool},
                         codec = Codec,
+                        policy_state = PState,
                         stage = tunnel},
                 hibernate));
         {error, Reason} when is_atom(Reason) ->

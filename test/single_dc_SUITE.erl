@@ -7,16 +7,18 @@
          init_per_testcase/2,
          end_per_testcase/2]).
 
--export([echo_secure_case/1,
-         echo_abridged_many_packets_case/1,
-         echo_tls_case/1,
-         packet_too_large_case/1,
+-export([config_change_case/1,
          downstream_size_backpressure_case/1,
          downstream_qlen_backpressure_case/1,
-         config_change_case/1,
+         echo_secure_case/1,
+         echo_abridged_many_packets_case/1,
+         echo_tls_case/1,
+         ipv6_connect_case/1,
+         packet_too_large_case/1,
+         policy_max_conns_case/1,
+         policy_whitelist_case/1,
          replay_attack_case/1,
-         replay_attack_server_error_case/1,
-         ipv6_connect_case/1
+         replay_attack_server_error_case/1
         ]).
 
 -export([set_env/2,
@@ -67,11 +69,11 @@ echo_secure_case(Cfg) when is_list(Cfg) ->
     Port = ?config(mtp_port, Cfg),
     Secret = ?config(mtp_secret, Cfg),
     Cli = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
-    Data = crypto:strong_rand_bytes(64),
-    Cli1 = mtp_test_client:send(Data, Cli),
-    {ok, Packet, Cli2} = mtp_test_client:recv_packet(Cli1, 1000),
+    Cli2 = ping(Cli),
+    ?assertEqual(
+       1, mtp_test_metric:get_tags(
+            count, [?APP, protocol_ok, total], [?FUNCTION_NAME, mtp_secure])),
     ok = mtp_test_client:close(Cli2),
-    ?assertEqual(Data, Packet),
     ok = mtp_test_metric:wait_for_value(
            count, [?APP, in_connection_closed, total], [?FUNCTION_NAME], 1, 5000),
     ?assertEqual(1, mtp_test_metric:get_tags(
@@ -129,11 +131,11 @@ echo_tls_case(Cfg) when is_list(Cfg) ->
     Port = ?config(mtp_port, Cfg),
     Secret = ?config(mtp_secret, Cfg),
     Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, {mtp_fake_tls, <<"example.com">>}),
-    Data = crypto:strong_rand_bytes(64),
-    Cli1 = mtp_test_client:send(Data, Cli0),
-    {ok, Packet, Cli2} = mtp_test_client:recv_packet(Cli1, 1000),
-    ok = mtp_test_client:close(Cli2),
-    ?assertEqual(Data, Packet).
+    Cli1 = ping(Cli0),
+    ?assertEqual(
+       1, mtp_test_metric:get_tags(
+            count, [?APP, protocol_ok, total], [?FUNCTION_NAME, mtp_secure_fake_tls])),
+    ok = mtp_test_client:close(Cli1).
 
 
 %% @doc test that client trying to send too big packets will be force-disconnected
@@ -412,14 +414,87 @@ ipv6_connect_case(Cfg) when is_list(Cfg) ->
     ?assertEqual(not_found, ConnCount()),
     ?assertEqual(8, tuple_size(Host)),
     Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
-    Data = crypto:strong_rand_bytes(64),
-    Cli1 = mtp_test_client:send(Data, Cli0),
-    {ok, Packet, Cli2} = mtp_test_client:recv_packet(Cli1, 1000),
-    ok = mtp_test_client:close(Cli2),
-    ?assertEqual(Data, Packet),
+    Cli1 = ping(Cli0),
+    ok = mtp_test_client:close(Cli1),
     ?assertEqual(1, ConnCount()),
     ok = mtp_test_metric:wait_for_value(
            count, [?APP, in_connection_closed, total], [?FUNCTION_NAME], 1, 5000).
+
+
+%% @doc Test "max_connections" policy
+policy_max_conns_case({pre, Cfg}) ->
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg),
+    %% Allow max 2 connections from IP
+    set_env([{policy, [{max_connections, [port_name, client_ipv4], 2}]}], Cfg1);
+policy_max_conns_case({post, Cfg}) ->
+    stop_single(Cfg),
+    reset_env(Cfg);
+policy_max_conns_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    SureClose =
+        fun(Cli) ->
+                PreClosed =
+                    mtp_test_metric:get_tags(
+                      count, [?APP, in_connection_closed, total], [?FUNCTION_NAME]),
+                ok = mtp_test_client:close(Cli),
+                ok = mtp_test_metric:wait_for_value(
+                       count, [?APP, in_connection_closed, total], [?FUNCTION_NAME], PreClosed + 1, 5000)
+        end,
+    Key = [?FUNCTION_NAME, mtp_policy:convert(client_ipv4, {127, 0, 0, 1})],
+    %% Open 2 connections, make sure 3rd one will be rejected
+    Cli10 = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
+    Cli11 = ping(Cli10),
+    ?assertEqual(1, mtp_policy_counter:get(Key)),
+    Cli20 = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
+    _Cli21 = ping(Cli20),
+    ?assertEqual(2, mtp_policy_counter:get(Key)),
+    Cli31 = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
+    ?assertError({badmatch, {error, closed}}, ping(Cli31)),
+    ?assertEqual(
+       1, mtp_test_metric:get_tags(
+            count, [?APP, protocol_error, total], [?FUNCTION_NAME, policy_error])),
+    ?assertEqual(2, mtp_policy_counter:get(Key)),
+    %% Close 1st connection and try to connect again. This should work.
+    SureClose(Cli11),
+    ?assertEqual(1, mtp_policy_counter:get(Key)),
+    Cli40 = mtp_test_client:connect(Host, Port, Secret, DcId, mtp_secure),
+    _Cli41 = ping(Cli40),
+    ?assertEqual(2, mtp_policy_counter:get(Key)),
+    ok.
+
+%% @doc tests that connections to whitelistsed domains are allowed and not from the list disallowed
+policy_whitelist_case({pre, Cfg}) ->
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg),
+    %% Allow max 2 connections from IP
+    Domain = <<"allowed.example.com">>,
+    ok = mtp_policy_table:add(domain_whitelist, tls_domain, Domain),
+    set_env([{policy, [{in_table, tls_domain, domain_whitelist}]}],
+            [{domain, Domain} | Cfg1]);
+policy_whitelist_case({post, Cfg}) ->
+    stop_single(Cfg),
+    reset_env(Cfg);
+policy_whitelist_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    Domain = ?config(domain, Cfg),
+    Cli01 = mtp_test_client:connect(Host, Port, Secret, DcId,
+                                    {mtp_fake_tls, Domain}),
+    _Cli02 = ping(Cli01),
+    ?assertError({badmatch, {error, closed}},
+                 begin
+                     Cli11 = mtp_test_client:connect(Host, Port, Secret, DcId,
+                                                     {mtp_fake_tls, <<"not-", Domain/binary>>}),
+                     ping(Cli11)
+                 end),
+    ?assertEqual(
+       1, mtp_test_metric:get_tags(
+            count, [?APP, protocol_error, total], [?FUNCTION_NAME, policy_error])),
+    ok.
 
 %% Helpers
 
@@ -486,3 +561,10 @@ reset_env(Cfg) ->
          {ok, Val} ->
              application:set_env(mtproto_proxy, K, Val)
      end || {K, V} <- OldEnv].
+
+ping(Cli0) ->
+    Data = crypto:strong_rand_bytes(64),
+    Cli1 = mtp_test_client:send(Data, Cli0),
+    {ok, Packet, Cli2} = mtp_test_client:recv_packet(Cli1, 1000),
+    ?assertEqual(Data, Packet),
+    Cli2.

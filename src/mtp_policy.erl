@@ -49,13 +49,12 @@ check(Rules, ListenerName, ClientIp, TlsDomain) ->
       end, Rules).
 
 dec(Rules, ListenerName, ClientIp,TlsDomain) ->
-    %% FIXME: this is not idempotent if `check/4` returned `false`!
     Vars = vars(ListenerName, ClientIp,TlsDomain),
     lists:foreach(
       fun({max_connections, Keys, _Max}) ->
               try
                   Key = [val(K, Vars) || K <- Keys],
-                  mtp_policy_counter:increment(Key)
+                  mtp_policy_counter:decrement(Key)
               catch throw:not_applicable ->
                       ok
               end;
@@ -77,6 +76,7 @@ check({max_connections, Keys, Max}, Vars) ->
     Key = [val(K, Vars) || K <- Keys],
     case mtp_policy_counter:increment(Key) of
         N when N > Max ->
+            mtp_policy_counter:decrement(Key),
             false;
         _ ->
             true
