@@ -9,7 +9,7 @@
 
 %% Application callbacks
 -export([start/2, prep_stop/1, stop/1, config_change/3]).
--export([mtp_listeners/0, running_ports/0, start_proxy/1, build_urls/4]).
+-export([mtp_listeners/0, running_ports/0, start_proxy/1, build_urls/4, get_port_secret/1]).
 
 -define(APP, mtproto_proxy).
 
@@ -81,6 +81,16 @@ running_ports() ->
               end
       end, mtp_listeners()).
 
+-spec get_port_secret(atom()) -> {ok, binary()} | not_found.
+get_port_secret(Name) ->
+    case [Secret
+          || #{name := PortName, secret := Secret} <- application:get_env(?APP, ports, []),
+             PortName == Name] of
+        [Secret] ->
+            {ok, Secret};
+        _ ->
+            not_found
+    end.
 
 %%====================================================================
 %% Internal functions

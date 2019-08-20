@@ -232,7 +232,7 @@ To change default settings, change `mtproto_proxy` section of `prod-sys.config` 
   %% see src/mtproto_proxy.app.src for examples.
   [
    {ports,
-    [#{name => mtp_handler1,
+    [#{name => mtp_handler_1,
        listen_ip => "0.0.0.0",
        port => 1443,
        secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
@@ -321,7 +321,9 @@ Following policies are supported:
 * `{in_table, KEY, TABLE_NAME}` - only allow connections if KEY is present in TABLE_NAME (whitelist)
 * `{not_in_table, KEY, TABLE_NAME}` - only allow connections if KEY is *not* present in TABLE_NAME (blacklist)
 * `{max_connections, KEYS, NUMBER}` - EXPERIMENTAL! if there are more than NUMBER connections with
-  KEYS to the proxy, new connections with those KEYS will be rejected.
+  KEYS to the proxy, new connections with those KEYS will be rejected. Note: number of connections is not the
+  same as number of unique "users". When someone connects to proxy with telegram client, Telegram
+  opens from 3 to 8 connections! So, you need to set this at least 8 * number of unique users.
 
 Where:
 
@@ -344,7 +346,8 @@ Some policy recipes / examples below
 
 #### Limit max connections to proxy port from single IP
 
-Here we allow maximum 100 concurrent connections from single IP to proxy port:
+Here we allow maximum 100 concurrent connections from single IP to proxy port (as it was said earlier, it's not
+the same as 100 unique "users"! Each telegram client opens up to 8 connections; usually 3):
 
 ```erlang
 {mtproto_proxy,
@@ -371,17 +374,17 @@ others:
      <..>
 ```
 
-After that we can create unique fake-TLS secret for each customer using code like this:
+After that we can create unique fake-TLS secret for each customer using command like this:
 
-```erlang
+```bash
 /opt/mtp_proxy/bin/mtp_proxy eval '
-ProxySecret = mtp_handler:unhex(maps:get(secret, hd(application:get_env(mtproto_proxy, ports, [])))),
+PortName = mtp_handler_1,
+{ok, ProxySecret} = mtproto_proxy_app:get_port_secret(PortName),
 NumRecords = mtp_policy_table:table_size(customer_domains),
-Rand = crypto:rand_bytes(2),
-SubDomain = mtp_handler:hex(<<NumRecords:16, Rand/binary>>),
+SubDomain = mtp_handler:hex(<<NumRecords:16, (crypto:strong_rand_bytes(2))/binary>>),
 Domain = <<SubDomain/binary, ".google.com">>,
 mtp_policy_table:add(customer_domains, tls_domain, Domain),
-Secret = mtp_handler:hex(<<16#ee, ProxySecret/binary, Domain/binary>>),
+Secret = mtp_fake_tls:format_secret_hex(ProxySecret, Domain),
 io:format("Secret: ~s;\nDomain: ~s\n", [Secret, Domain]).'
 ```
 

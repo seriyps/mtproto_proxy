@@ -39,7 +39,7 @@
         %% If not set, 0.0.0.0 will be used
         {listen_ip, "0.0.0.0"},
         %% You can add as much as you want. Names and ports should be unique
-        {ports, [#{name => mtp_handler,
+        {ports, [#{name => mtp_handler_1,
                    port => 1443,
                    %% You can tell it to listen on specific IP.
                    %% If not set, top-level listen_ip will be used.
