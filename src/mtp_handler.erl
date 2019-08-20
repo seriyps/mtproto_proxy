@@ -50,6 +50,7 @@
 
          ad_tag :: binary(),
          addr :: mtp_config:netloc_v4v6(),           % IP/Port of remote side
+         policy_state :: any(),
          started_at :: pos_integer(),
          timer_state = init :: init | hibernate | stop,
          timer :: gen_timeout:tout(),
@@ -212,7 +213,14 @@ handle_info(Other, S) ->
     ?log(warning, "Unexpected msg ~p", [Other]),
     {noreply, S}.
 
-terminate(_Reason, #state{started_at = Started, listener = Listener} = S) ->
+terminate(_Reason, #state{started_at = Started, listener = Listener,
+                          addr = {Ip, _}, policy_state = MaybeSni} = S) ->
+    try mtp_policy:dec(
+          application:get_env(?APP, policy, []),
+          Listener, Ip, MaybeSni)
+    catch T:R ->
+            ?log(warning, "Failed to decrement policy: ~p:~p", [T, R])
+    end,
     maybe_close_down(S),
     mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Listener]}),
     Lifetime = erlang:system_time(millisecond) - Started,
@@ -295,16 +303,17 @@ parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
     assert_protocol(mtp_fake_tls),
     <<Data:(?TLS_CLIENT_HELLO_LEN + 5)/binary, Tail/binary>> = AllData,
     {ok, Response, Meta, TlsCodec} = mtp_fake_tls:from_client_hello(Data, Secret),
-    check_tls_access(Listener, Ip, Meta),
+    check_tls_policy(Listener, Ip, Meta),
     Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
     Codec = mtp_codec:push_back(tls, Tail, Codec1),
     ok = up_send_raw(Response, S),
-    {ok, S#state{codec = Codec, stage = init}};
+    {ok, S#state{codec = Codec, stage = init,
+                 policy_state = maps:get(sni_domain, Meta, undefined)}};
 parse_upstream_data(<<?TLS_START, _/binary>> = Data, #state{stage = init} = S) ->
     parse_upstream_data(Data, S#state{stage = tls_hello});
 parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                      #state{stage = init, secret = Secret, listener = Listener, codec = Codec0,
-                            ad_tag = Tag, addr = Addr} = S) ->
+                            ad_tag = Tag, addr = {Ip, _} = Addr} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
             maybe_check_replay(Header),
@@ -314,6 +323,7 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                         mtp_secure_fake_tls;
                     {false, _} ->
                         assert_protocol(PacketLayerMod),
+                        check_policy(Listener, Ip, undefined),
                         PacketLayerMod
                 end,
             mtp_metric:count_inc([?APP, protocol_ok, total],
@@ -356,20 +366,19 @@ maybe_check_replay(Packet) ->
             ok
     end.
 
-check_tls_access(_Listener, _Ip, #{sni_domain := Domain}) ->
+check_tls_policy(Listener, Ip, #{sni_domain := TlsDomain}) ->
     %% TODO validate timestamp!
-    %% TODO some more scalable solution
-    case application:get_env(?APP, tls_allowed_domains, any) of
-        any ->
-            %% No limits
-            true;
-        AllowedDomains ->
-            lists:member(Domain, AllowedDomains)
-                orelse error({protocol_error, tls_sni_domain_not_allowed, Domain})
-    end;
-check_tls_access(_, Ip, Meta) ->
+    check_policy(Listener, Ip, TlsDomain);
+check_tls_policy(_, Ip, Meta) ->
     error({protocol_error, tls_no_sni, {Ip, Meta}}).
 
+check_policy(Listener, Ip, Domain) ->
+    Rules = application:get_env(?APP, policy, []),
+    case mtp_policy:check(Rules, Listener, Ip, Domain) of
+        [] -> ok;
+        [Rule | _] ->
+            error({protocol_error, policy_error, {Rule, Listener, Ip, Domain}})
+    end.
 
 up_send(Packet, #state{stage = tunnel, codec = UpCodec} = S) ->
     %% ?log(debug, ">Up: ~p", [Packet]),

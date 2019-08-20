@@ -54,6 +54,10 @@ init([]) ->
               #{id => mtp_config,
                 start => {mtp_config, start_link, []}},
               #{id => mtp_session_storage,
-                start => {mtp_session_storage, start_link, []}}
+                start => {mtp_session_storage, start_link, []}},
+              #{id => mtp_policy_table,
+                start => {mtp_policy_table, start_link, []}},
+              #{id => mtp_policy_counter,
+                start => {mtp_policy_counter, start_link, []}}
              ],
     {ok, {SupFlags, Childs}}.

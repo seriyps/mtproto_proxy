@@ -6,19 +6,22 @@ This part of code was extracted from [@socksy_bot](https://t.me/socksy_bot).
 Features
 --------
 
-* Promoted channels! See `mtproto_proxy_app.src` `tag` option.
+* Promoted channels. See `tag` option.
 * "secure" randomized-packet-size protocol (34-symbol secrets starting with 'dd')
   to prevent detection by DPI
-* Fake-TLS protocol (base64 secrets) - another protocol to prevent DPI detection
-* Secure-only mode (only allow connections with 'dd' or fake-tls-base64-secrets).
+* Fake-TLS protocol ('ee'/base64 secrets) - another protocol to prevent DPI detection
+* Secure-only mode (only allow connections with 'dd' or fake-TLS).
   See `allowed_protocols` option.
+* Connection limit policies - limit number of connections by IP / tls-domain / port; IP / tls-domain
+  blacklists / whitelists
 * Multiple ports with unique secret and promo tag for each port
 * Very high performance - can handle tens of thousands connections! Scales to all CPU cores.
   1Gbps, 90k connections on 4-core/8Gb RAM cloud server.
 * Supports multiplexing (Many connections Client -> Proxy are wrapped to small amount of
-  connections Proxy -> Telegram Server)
+  connections Proxy -> Telegram Server) - lower pings and better OS network utilization
 * Protection from [replay attacks](https://habr.com/ru/post/452144/) used to detect proxies in some countries
 * Automatic telegram configuration reload (no need for restarts once per day)
+* IPv6 for client connections
 * Most of the configuration options can be updated without service restart
 * Small codebase compared to official one, code is covered by automated tests
 * A lots of metrics could be exported (optional)
@@ -27,20 +30,20 @@ How to install - one-line interactive installer
 -----------------------------------------------
 
 This command will run [interactive script](https://gist.github.com/seriyps/dc00ad91bfd8a2058f30845cd0daed83)
-that will install and configure proxy for your Ubuntu 18.04 server.
+that will install and configure proxy for your Ubuntu / Debian / CentOS server.
 It will ask if you want to change default port/secret/ad-tag/protocols:
 
 ```bash
 curl -L -o mtp_install.sh https://git.io/fj5ru && bash mtp_install.sh
 ```
 
-You can also just provide port/secret/ad-tag/protocols as command line arguments:
+You can also just provide port/secret/ad-tag/protocols/tls-domain as command line arguments:
 
 ```bash
-curl -L -o mtp_install.sh https://git.io/fj5ru && bash mtp_install.sh -p 443 -s d0d6e111bada5511fcce9584deadbeef -t dcbe8f1493fa4cd9ab300891c0b5b326 -a dd -a tls
+curl -L -o mtp_install.sh https://git.io/fj5ru && bash mtp_install.sh -p 443 -s d0d6e111bada5511fcce9584deadbeef -t dcbe8f1493fa4cd9ab300891c0b5b326 -a dd -a tls -d s3.amazonaws.com
 ```
 
-It does the same as described in [How to start OS-install - detailed](#how-to-start-os-install---detailed) but
+It does the same as described in [How to start OS-install - detailed](#how-to-start-os-install---detailed), but
 generates config-file for you automatically.
 
 How to start - docker
@@ -108,10 +111,24 @@ How to start OS-install - detailed
 --------------------------------------
 
 
-### Install deps (ubuntu 18.04)
+### Install deps
+
+Ubuntu 18.xx / Ubuntu 19.xx / Debian 10:
 
 ```bash
-sudo apt install erlang-nox erlang-dev build-essential
+sudo apt install erlang-nox erlang-dev  make sed diffutils tar
+```
+
+CentOS 7
+
+```bash
+# Enable "epel" and "Erlang solutions" repositories
+sudo yum install wget \
+             https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm \
+             https://packages.erlang-solutions.com/erlang-solutions-1.0-1.noarch.rpm
+# Install Erlang
+sudo yum install erlang-compiler erlang-erts erlang-kernel erlang-stdlib erlang-syntax_tools \
+     erlang-crypto erlang-inets erlang-sasl erlang-ssl
 ```
 
 You need Erlang version 20 or higher! If your version is older, please, check
@@ -273,12 +290,12 @@ You should disable all protocols other than `mtp_secure` by providing `allowed_p
       <..>
 ```
 
-### Only allow fake-TLS connections with base64-secrets
+### Only allow fake-TLS connections with ee/base64-secrets
 
 Another censorship circumvention technique. MTPRoto proxy protocol pretends to be
 HTTPS web traffic (technically speaking, TLSv1.3 + HTTP/2).
 It's possible to only allow connections with this protocol by changing `allowed_protocols` to
-be list with only `mtp_fake_tls`. You may also want to check `tls_allowed_domains` option.
+be list with only `mtp_fake_tls`.
 
 ```erlang
   {mtproto_proxy,
@@ -287,6 +304,85 @@ be list with only `mtp_fake_tls`. You may also want to check `tls_allowed_domain
     {ports,
      [#{name => mtp_handler_1,
       <..>
+```
+
+### Connection limit policies
+
+Proxy supports flexible connection limit rules. It's possible to limit number of connections from
+single IP or to single fake-TLS domain or to single port name; or any combination of them.
+It also supports whitelists and blacklists: you can allow or forbid to connect from some IP or IP subnet
+or with some TLS domains.
+
+Policy is set as value of `policy` config key and the value is the list of policy structures.
+If list is empty, no limits will be checked.
+
+Following policies are supported:
+
+* `{max_connections, KEYS, NUMBER}` - EXPERIMENTAL! if there are more than NUMBER connections with
+  KEYS to the proxy, new connections with those KEYS will be rejected
+* `{in_table, KEY, TABLE_NAME}` - only allow connections if KEY is present in TABLE_NAME (whitelist)
+* `{not_in_table, KEY, TABLE_NAME}` - only allow connections if KEY is *not* present in TABLE_NAME (blacklist)
+
+Where:
+
+- `KEY` is one of:
+  - `port_name` - proxy port name
+  - `client_ipv4` - client's IPv4 address; ignored on IPv6 ports!
+  - `client_ipv6` - client's IPv6 address; ignored on IPv4 ports!
+  - `{client_ipv4_subnet, MASK}` - client's IPv4 subnet; mask is from 8 to 32
+  - `{client_ipv6_subnet, MASK}` - client's IPv6 subnet; mask is from 32 to 128
+  - `tls_domain` - domain name from fake-TLS secret; ignored if connection with non-fake-TLS protocol
+- `KEYS` is a list of one or more `KEY`, eg, `[port, tls_domain]`
+- `TABLE_NAME` is free-form text name of special internal database table, eg, `my_table`.
+  Tables will be created automatically when proxy is started; data in tables is not preserved when proxy
+  is restarted!
+  You can add or remove new values from table dynamically at any moment with commands like:
+    - `/opt/mtp_proxy/bin/mtp_proxy eval 'mtp_policy_table:add(my_table, tls_domain, "google.com")'` to add
+    - `/opt/mtp_proxy/bin/mtp_proxy eval 'mtp_policy_table:del(my_table, tls_domain, "google.com")'` to remove
+
+Some policy recipes / examples below
+
+#### Limit max connections to proxy port from single IP
+
+Here we allow maximum 100 concurrent connections from single IP to proxy port:
+
+```erlang
+{mtproto_proxy,
+ [
+  {policy,
+    [{max_connections, [port_name, client_ipv4], 100}]},
+  {ports,
+    <..>
+```
+
+#### Limit number of connections with single fake-TLS domain; only allow certain domains
+
+We basically can assign each customer unique fake-TLS domain, give them unique TLS secret
+and allow only 10 connections with this fake-TLS secret, so, they will not shere their credentials with
+others:
+
+```erlang
+{mtproto_proxy
+ [
+   {policy,
+     [{max_connections, [port_name, tls_domain], 15},
+      {in_table, tls_domain, customer_domains}]},
+   {ports,
+     <..>
+```
+
+After that we can create unique fake-TLS secret for each customer using code like this:
+
+```erlang
+/opt/mtp_proxy/bin/mtp_proxy eval '
+ProxySecret = mtp_handler:unhex(maps:get(secret, hd(application:get_env(mtproto_proxy, ports, [])))),
+NumRecords = mtp_policy_table:table_size(customer_domains),
+Rand = crypto:rand_bytes(2),
+SubDomain = mtp_handler:hex(<<NumRecords:16, Rand/binary>>),
+Domain = <<SubDomain/binary, ".google.com">>,
+mtp_policy_table:add(customer_domains, tls_domain, Domain),
+Secret = mtp_handler:hex(<<16#ee, ProxySecret/binary, Domain/binary>>),
+io:format("Secret: ~s;\nDomain: ~s\n", [Secret, Domain]).'
 ```
 
 ### IPv6
@@ -333,6 +429,7 @@ If your server have low amount of RAM, try to set
 
 this may make proxy slower, it can start to consume bit more CPU, will be vulnerable to replay attacks,
 but will use less RAM.
+You should also avoid `max_connections` policy because it uses RAM to track connections.
 
 If your server have lots of RAM, you can make it faster (users will get higher uppload/download speed),
 it will use less CPU and will be better protected from replay attacks, but will use more RAM:

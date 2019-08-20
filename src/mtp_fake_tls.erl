@@ -11,7 +11,8 @@
 
 -behaviour(mtp_codec).
 
--export([format_secret/2]).
+-export([format_secret_base64/2,
+         format_secret_hex/2]).
 -export([from_client_hello/2,
          new/0,
          try_decode_packet/2,
@@ -79,11 +80,16 @@
 
 
 %% @doc format TLS secret
--spec format_secret(binary(), binary()) -> binary().
-format_secret(Secret, Domain) when byte_size(Secret) == 16 ->
+format_secret_hex(Secret, Domain) when byte_size(Secret) == 16 ->
+    mtp_handler:hex(<<16#ee, Secret/binary, Domain/binary>>);
+format_secret_hex(HexSecret, Domain) when byte_size(HexSecret) == 32 ->
+    format_secret_hex(mtp_handler:unhex(HexSecret), Domain).
+
+-spec format_secret_base64(binary(), binary()) -> binary().
+format_secret_base64(Secret, Domain) when byte_size(Secret) == 16 ->
     base64url(<<16#ee, Secret/binary, Domain/binary>>);
-format_secret(HexSecret, Domain) when byte_size(HexSecret) == 32 ->
-    format_secret(mtp_handler:unhex(HexSecret), Domain).
+format_secret_base64(HexSecret, Domain) when byte_size(HexSecret) == 32 ->
+    format_secret_base64(mtp_handler:unhex(HexSecret), Domain).
 
 base64url(Bin) ->
     %% see https://hex.pm/packages/base64url
