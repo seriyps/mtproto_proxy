@@ -32,7 +32,7 @@
         {ip_lookup_services,
          ["http://ipv4.seriyps.ru/",
           "https://digitalresistance.dog/myIp",
-          "http://ipv4.myexternalip.com/raw"]},
+          "http://mod.ovh/ip/"]},
         %% {external_ip, "YOUR.SERVER.EXTERNAL.IP"},
 
         %% Interface to listen for incoming connections
