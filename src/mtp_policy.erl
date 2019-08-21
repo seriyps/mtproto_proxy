@@ -116,17 +116,33 @@ convert(tls_domain, Domain) when is_binary(Domain) ->
     Domain;
 convert(tls_domain, DomainStr) when is_list(DomainStr) ->
     convert(tls_domain, list_to_binary(DomainStr));
-convert(client_ipv4, Ip) ->
+convert(client_ipv4, Ip0) ->
+    Ip = parse_ip(v4, Ip0),
     <<I:32/unsigned-little>> = mtp_rpc:inet_pton(Ip),
     I;
-convert(client_ipv6, Ip) ->
+convert(client_ipv6, Ip0) ->
+    Ip = parse_ip(v6, Ip0),
     <<I:128/unsigned-little>> = mtp_rpc:inet_pton(Ip),
     I;
-convert({client_ipv4_subnet, Mask}, Ip) ->
+convert({client_ipv4_subnet, Mask}, Ip0) ->
+    Ip = parse_ip(v4, Ip0),
     <<I:Mask/unsigned-little, _/bits>> = mtp_rpc:inet_pton(Ip),
     I;
-convert({client_ipv6_subnet, Mask}, Ip) ->
+convert({client_ipv6_subnet, Mask}, Ip0) ->
+    Ip = parse_ip(v6, Ip0),
     <<I:Mask/unsigned-little, _/bits>> = mtp_rpc:inet_pton(Ip),
     I.
 
+parse_ip(v4, Tup) when is_tuple(Tup),
+                       tuple_size(Tup) == 4 ->
+    Tup;
+parse_ip(v6, Tup) when is_tuple(Tup),
+                       tuple_size(Tup) == 8 ->
+    Tup;
+parse_ip(v4, Str) when is_list(Str) ->
+    {ok, Ip} = inet:parse_ipv4_address(Str),
+    Ip;
+parse_ip(v6, Str) when is_list(Str) ->
+    {ok, Ip} = inet:parse_ipv6_address(Str),
+    Ip.
 

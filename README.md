@@ -358,11 +358,35 @@ the same as 100 unique "users"! Each telegram client opens up to 8 connections; 
     <..>
 ```
 
-#### Limit number of connections with single fake-TLS domain; only allow certain domains
+#### Disallow connections from some IPs
 
-We basically can assign each customer unique fake-TLS domain, give them unique TLS secret
-and allow only 10 connections with this fake-TLS secret, so, they will not shere their credentials with
-others:
+```erlang
+{mtproto_proxy
+ [
+   {policy,
+     [{not_in_table, client_ipv4, ip_blacklist}]},
+   {ports,
+     <..>
+```
+
+And then add IPs to blacklist with command:
+
+```bash
+/opt/mtp_proxy/bin/mtp_proxy eval '
+mtp_policy_table:add(ip_blacklist, client_ipv4, "203.0.113.1")'
+```
+
+Remove from blacklist:
+
+```bash
+/opt/mtp_proxy/bin/mtp_proxy eval '
+mtp_policy_table:del(ip_blacklist, client_ipv4, "203.0.113.1")'
+```
+
+#### Personal proxy / multi-secret proxy
+
+We can limit number of connections with single fake-TLS domain and only allow connections
+with fake-TLS domains from whitelist.
 
 ```erlang
 {mtproto_proxy
@@ -374,14 +398,16 @@ others:
      <..>
 ```
 
-After that we can create unique fake-TLS secret for each customer using command like this:
+Now we can assign each customer unique fake-TLS domain and give them unique TLS secret.
+Because we only allow 10 connections with single fake-TLS secret, they will not be able to
+share their credentials with others:
 
 ```bash
 /opt/mtp_proxy/bin/mtp_proxy eval '
 PortName = mtp_handler_1,
 {ok, ProxySecret} = mtproto_proxy_app:get_port_secret(PortName),
 NumRecords = mtp_policy_table:table_size(customer_domains),
-SubDomain = mtp_handler:hex(<<NumRecords:16, (crypto:strong_rand_bytes(2))/binary>>),
+SubDomain = mtp_handler:hex(<<NumRecords:16, (crypto:strong_rand_bytes(4))/binary>>),
 Domain = <<SubDomain/binary, ".google.com">>,
 mtp_policy_table:add(customer_domains, tls_domain, Domain),
 Secret = mtp_fake_tls:format_secret_hex(ProxySecret, Domain),
