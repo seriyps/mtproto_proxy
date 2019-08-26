@@ -257,14 +257,20 @@ update_ip([Url | Fallbacks]) ->
 update_ip([]) ->
     error(ip_lookup_failed).
 
+-ifdef(OTP_VERSION).
+%% XXX: ipfamily only works on OTP >= 20.3.4; see OTP 2dc08b47e6a5ea759781479593c55bb5776cd828
+%% Enable it for OTP 21+ for simplicity
+-define(OPTS, [{socket_opts, [{ipfamily, inet}]}]).
+-else.
+-define(OPTS, []).
+-endif.
+
 http_get(Url) ->
     {ok, Vsn} = application:get_key(mtproto_proxy, vsn),
     UserAgent = "MTProtoProxy/" ++ Vsn ++ " (+https://github.com/seriyps/mtproto_proxy)",
     Headers = [{"User-Agent", UserAgent}],
-    %% XXX: ipfamily only works on OTP >= 20.3.4; see OTP 2dc08b47e6a5ea759781479593c55bb5776cd828
     {ok, {{_, 200, _}, _, Body}} =
-        httpc:request(get, {Url, Headers}, [{timeout, 3000}],
-                      [{socket_opts, [{ipfamily, inet}]}]),
+        httpc:request(get, {Url, Headers}, [{timeout, 3000}], ?OPTS),
     {ok, Body}.
 
 random_choice(L) ->
