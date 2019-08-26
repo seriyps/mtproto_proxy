@@ -24,6 +24,7 @@ LimitNOFILE=40960
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 ExecStart=/opt/mtp_proxy/bin/mtp_proxy foreground
 ExecStop=/opt/mtp_proxy/bin/mtp_proxy stop
+ExecReload=/opt/mtp_proxy/bin/mtp_proxy rpcterms mtproto_proxy_app reload_config
 TimeoutStopSec=15s
 
 [Install]

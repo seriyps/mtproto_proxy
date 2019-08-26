@@ -9,7 +9,13 @@
 
 %% Application callbacks
 -export([start/2, prep_stop/1, stop/1, config_change/3]).
--export([mtp_listeners/0, running_ports/0, start_proxy/1, build_urls/4, get_port_secret/1]).
+%% Helpers
+-export([mtp_listeners/0,
+         reload_config/0,
+         running_ports/0,
+         start_proxy/1,
+         build_urls/4,
+         get_port_secret/1]).
 
 -define(APP, mtproto_proxy).
 
@@ -22,7 +28,7 @@
                         listen_ip => string()}.
 
 %%====================================================================
-%% API
+%% Application behaviour API
 %%====================================================================
 start(_StartType, _StartArgs) ->
     Res = {ok, _} = mtproto_proxy_sup:start_link(),
@@ -49,6 +55,41 @@ config_change(Changed, New, Removed) ->
     ok = lists:foreach(fun({K, V}) -> config_changed(new, K, V) end, New).
 
 %%--------------------------------------------------------------------
+%% Other APIs
+
+%% XXX: this is ad-hoc helper function; it is simplified version of code from OTP application_controller.erl
+reload_config() ->
+    PreEnv = application:get_all_env(?APP),
+    NewConfig = read_sys_config(),
+    [application:set_env(?APP, K, V) || {K, V} <- NewConfig],
+    NewEnv = application:get_all_env(?APP),
+    %% TODO: "Removed" will always be empty; to handle it properly we should merge env
+    %% from .app file with NewConfig
+    {Changed, New, Removed} = diff_env(NewEnv, PreEnv),
+    ?log(info, "Updating config; changed=~p, new=~p, deleted=~p", [Changed, New, Removed]),
+    config_change(Changed, New, Removed).
+
+read_sys_config() ->
+    {ok, [[File]]} = init:get_argument(config),
+    {ok, [Data]} = file:consult(File),
+    proplists:get_value(?APP, Data, []).
+
+diff_env(NewEnv, OldEnv) ->
+    NewEnvMap = maps:from_list(NewEnv),
+    OldEnvMap = maps:from_list(OldEnv),
+    NewKeySet = ordsets:from_list(maps:keys(NewEnvMap)),
+    OldKeySet = ordsets:from_list(maps:keys(OldEnvMap)),
+    DelKeys = ordsets:subtract(OldKeySet, NewKeySet),
+    AddKeys = ordsets:subtract(NewKeySet, OldKeySet),
+    ChangedKeys =
+        lists:filter(
+          fun(K) ->
+                  maps:get(K, NewEnvMap) =/= maps:get(K, OldEnvMap)
+          end, ordsets:intersection(OldKeySet, NewKeySet)),
+    {[{K, maps:get(K, NewEnvMap)} || K <- ChangedKeys],
+     [{K, maps:get(K, NewEnvMap)} || K <- AddKeys],
+     DelKeys}.
+
 
 %% @doc List of ranch listeners running mtproto_proxy
 -spec mtp_listeners() -> [tuple()].
@@ -199,4 +240,22 @@ report(Fmt, Args) ->
 report(Fmt, Args) ->
     io:format(Fmt ++ "\n", Args),
     ?log(info, Fmt, Args).
+-endif.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+env_diff_test() ->
+    Pre = [{a, 1},
+           {b, 2},
+           {c, 3}],
+    Post = [{b, 2},
+            {c, 4},
+            {d, 5}],
+    ?assertEqual(
+       {[{c, 4}],
+        [{d, 5}],
+        [a]},
+       diff_env(Post, Pre)).
+
 -endif.

@@ -22,7 +22,7 @@ Features
 * Protection from [replay attacks](https://habr.com/ru/post/452144/) used to detect proxies in some countries
 * Automatic telegram configuration reload (no need for restarts once per day)
 * IPv6 for client connections
-* Most of the configuration options can be updated without service restart
+* All configuration options can be updated without service restart
 * Small codebase compared to official one, code is covered by automated tests
 * A lots of metrics could be exported (optional)
 
@@ -46,7 +46,7 @@ curl -L -o mtp_install.sh https://git.io/fj5ru && bash mtp_install.sh -p 443 -s 
 It does the same as described in [How to start OS-install - detailed](#how-to-start-os-install---detailed), but
 generates config-file for you automatically.
 
-How to start - docker
+How to start - Docker
 ---------------------
 
 ### To run with default settings
@@ -213,15 +213,19 @@ Default port is 1443 and default secret is `d0d6e111bada5511fcce9584deadbeef`.
 
 Secret key and proxy URLs will be printed on start.
 
-The easiest way to update config right now is to edit `config/prod-sys.config`
-and then re-install proxy by
+
+### Apply config changes without restart
+
+It's possible to reload config file without service restart (but if you want to update
+ad_tag on existing port, all clients of this port will be disconnected).
+
+This method doesn't work for Docker!
+
+To do that, make changes in `config/prod-sys.config` and run following command:
 
 ```bash
-sudo make uninstall && make && sudo make install
+sudo make update-sysconfig && sudo systemctl reload mtproto-proxy
 ```
-
-There are other ways as well. It's even possible to update configuration options
-without service restart / without downtime, but it's a bit trickier.
 
 ### Change default port / secret / ad tag
 

@@ -20,10 +20,10 @@ test:
 	$(REBAR3) cover -v
 
 config/prod-sys.config: config/sys.config.example
-	[ -f $@ ] && diff $^ $@ || true
+	[ -f $@ ] && diff -u $@ $^ || true
 	cp -i -b $^ $@
 config/prod-vm.args: config/vm.args.example
-	[ -f $@ ] && diff $^ $@ || true
+	[ -f $@ ] && diff -u $@ $^ || true
 	cp -i -b $^ $@
 	@IP=$(shell curl -s -4 -m 10 http://ip.seriyps.ru  || curl -s -4 -m 10 https://digitalresistance.dog/myIp) \
 		&& sed -i s/@0\.0\.0\.0/@$${IP}/ $@
@@ -47,6 +47,11 @@ install: user $(LOGDIR)
 	    install -D config/epmd.service $(EPMD_SERVICE); \
 	fi
 	systemctl daemon-reload
+
+.PHONY: update-sysconfig
+update-sysconfig: config/prod-sys.config $(prefix)/mtp_proxy
+	REL_VSN=$(shell awk '{print $$2}' $(prefix)/mtp_proxy/releases/start_erl.data) && \
+		install -m 644 config/prod-sys.config "$(prefix)/mtp_proxy/releases/$${REL_VSN}/sys.config"
 
 uninstall:
 # TODO: ensure service is stopped
