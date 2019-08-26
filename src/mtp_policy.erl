@@ -113,7 +113,7 @@ val(Policy, Vars) when is_atom(Policy);
 convert(port_name, PortName) ->
     PortName;
 convert(tls_domain, Domain) when is_binary(Domain) ->
-    Domain;
+    string:casefold(Domain);
 convert(tls_domain, DomainStr) when is_list(DomainStr) ->
     convert(tls_domain, list_to_binary(DomainStr));
 convert(client_ipv4, Ip0) ->

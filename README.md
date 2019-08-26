@@ -333,7 +333,7 @@ Where:
   - `client_ipv6` - client's IPv6 address; ignored on IPv4 ports!
   - `{client_ipv4_subnet, MASK}` - client's IPv4 subnet; mask is from 8 to 32
   - `{client_ipv6_subnet, MASK}` - client's IPv6 subnet; mask is from 32 to 128
-  - `tls_domain` - domain name from fake-TLS secret; ignored if connection with non-fake-TLS protocol
+  - `tls_domain` - lowercase domain name from fake-TLS secret; ignored if connection with non-fake-TLS protocol
 - `KEYS` is a list of one or more `KEY`, eg, `[port, tls_domain]`
 - `TABLE_NAME` is free-form text name of special internal database table, eg, `my_table`.
   Tables will be created automatically when proxy is started; data in tables is not preserved when proxy
