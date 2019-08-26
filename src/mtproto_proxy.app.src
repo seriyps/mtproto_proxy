@@ -31,8 +31,9 @@
         %% 2nd one will be tried and so on
         {ip_lookup_services,
          ["http://ipv4.seriyps.ru/",
-          "https://digitalresistance.dog/myIp",
-          "http://ipv4.myexternalip.com/raw"]},
+          "http://v4.ident.me/",
+          "http://ipv4.icanhazip.com/",
+          "https://digitalresistance.dog/myIp"]},
         %% {external_ip, "YOUR.SERVER.EXTERNAL.IP"},
 
         %% Interface to listen for incoming connections
