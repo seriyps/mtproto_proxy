@@ -43,14 +43,14 @@ install: user $(LOGDIR)
 	chmod 777 $(prefix)/mtp_proxy/log/
 	install -D config/mtproto-proxy.service $(SERVICE)
 # If there is no "epmd" service, install one
-	if [ -z "`systemctl show -p FragmentPath --value epmd`" ]; then \
+	if [ -z "`systemctl show -p FragmentPath epmd | cut -d = -f 2`" ]; then \
 	    install -D config/epmd.service $(EPMD_SERVICE); \
 	fi
 	systemctl daemon-reload
 
 .PHONY: update-sysconfig
 update-sysconfig: config/prod-sys.config $(prefix)/mtp_proxy
-	REL_VSN=$(shell awk '{print $$2}' $(prefix)/mtp_proxy/releases/start_erl.data) && \
+	REL_VSN=$(shell cut -d " " -f 2 $(prefix)/mtp_proxy/releases/start_erl.data) && \
 		install -m 644 config/prod-sys.config "$(prefix)/mtp_proxy/releases/$${REL_VSN}/sys.config"
 
 uninstall:
