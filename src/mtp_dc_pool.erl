@@ -33,6 +33,7 @@
 -define(SERVER, ?MODULE).
 -define(APP, mtproto_proxy).
 -define(BURST_MAX, 10).
+-define(DEFAULT_INIT_CONNS, 4).
 
 -type upstream() :: mtp_handler:handle().
 -type downstream() :: mtp_down_conn:handle().
@@ -92,7 +93,7 @@ status(Pool) ->
 %%% gen_server callbacks
 %%%===================================================================
 init(DcId) ->
-    InitConnections = application:get_env(mtproto_proxy, init_dc_connections, 4),
+    InitConnections = application:get_env(?APP, init_dc_connections, ?DEFAULT_INIT_CONNS),
     State = #state{dc_id = DcId,
                    downstreams = ds_new([])},
     State1 = connect_many(InitConnections, State),
@@ -184,14 +185,33 @@ handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
                     Pending1 = lists:delete(Pid, Pending),
                     Ds1 = ds_remove(Pid, Ds),
                     ?log(error, "Downstream=~p is down. reason=~p", [Pid, Reason]),
-                    St#state{pending_downstreams = Pending1,
-                             downstreams = Ds1,
-                             downstream_monitors = DsM1};
+                    maybe_restart_connection(
+                      St#state{pending_downstreams = Pending1,
+                               downstreams = Ds1,
+                               downstream_monitors = DsM1});
                 _ ->
                     ?log(error, "Unexpected DOWN. ref=~p, pid=~p, reason=~p", [MonRef, Pid, Reason]),
                     St
             end
     end.
+
+maybe_restart_connection(#state{pending_downstreams = [],
+                                downstream_monitors = DsM} = St) ->
+    MinConnections = application:get_env(?APP, init_dc_connections, ?DEFAULT_INIT_CONNS),
+    OpenConnections = map_size(DsM),
+    case OpenConnections < MinConnections of
+        true ->
+            %% We have less than minimum connections. Just spawn new one
+            connect(St);
+        false ->
+            %% We have more than minimum connections.
+            %% Don't spawn anything, because it will be done on-demand
+            St
+    end;
+maybe_restart_connection(St) ->
+    %% We already have pending connections. Just wait for them to complete
+    St.
+
 
 maybe_spawn_connection(CurrentMin, #state{pending_downstreams = Pending} = St) ->
     %% if N > X and len(pending) < Y -> connect()

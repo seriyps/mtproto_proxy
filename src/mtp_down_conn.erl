@@ -168,8 +168,8 @@ handle_info(do_connect, #state{dc_id = DcId} = State) ->
         {ok, St1} = connect(DcId, State),
         {noreply, St1}
     catch ?WITH_STACKTRACE(Class, Reason, Stack)
-            ?log(error, "Down connect error: ~s",
-                 [lager:pr_stacktrace(Stack, {Class, Reason})]), %XXX lager-specific
+            ?log(error, "Down connect to dc=~w error: ~s",
+                 [DcId, lager:pr_stacktrace(Stack, {Class, Reason})]), %XXX lager-specific
             erlang:send_after(300, self(), do_connect),
             {noreply, State}
     end.
