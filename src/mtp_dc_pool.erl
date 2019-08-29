@@ -204,11 +204,12 @@ handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
             end
     end.
 
-maybe_restart_connection(#state{pending_downstreams = [],
+maybe_restart_connection(#state{pending_downstreams = Pending,
                                 downstream_monitors = DsM} = St) ->
     MinConnections = application:get_env(?APP, init_dc_connections, ?DEFAULT_INIT_CONNS),
-    OpenConnections = map_size(DsM),
-    case OpenConnections < MinConnections of
+    NumOpen = map_size(DsM),
+    NumPending = length(Pending),
+    case (NumOpen + NumPending) < MinConnections of
         true ->
             %% We have less than minimum connections. Just spawn new one
             connect(St);
@@ -216,10 +217,7 @@ maybe_restart_connection(#state{pending_downstreams = [],
             %% We have more than minimum connections.
             %% Don't spawn anything, because it will be done on-demand
             St
-    end;
-maybe_restart_connection(St) ->
-    %% We already have pending connections. Just wait for them to complete
-    St.
+    end.
 
 
 maybe_spawn_connection(CurrentMin, #state{pending_downstreams = Pending} = St) ->
