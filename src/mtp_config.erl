@@ -63,8 +63,13 @@ start_link() ->
 get_downstream_safe(DcId, Opts) ->
     case get_downstream_pool(DcId) of
         {ok, Pool} ->
-            Downstream = mtp_dc_pool:get(Pool, self(), Opts),
-            {DcId, Pool, Downstream};
+            case mtp_dc_pool:get(Pool, self(), Opts) of
+                Downstream when is_pid(Downstream) ->
+                    {DcId, Pool, Downstream};
+                {error, empty} ->
+                    %% TODO: maybe sleep and retry?
+                    error({pool_empty, DcId, Pool})
+            end;
         not_found ->
             [{?IDS_KEY, L}] = ets:lookup(?TAB, ?IDS_KEY),
             NewDcId = random_choice(L),

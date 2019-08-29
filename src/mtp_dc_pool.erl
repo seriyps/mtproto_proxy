@@ -72,7 +72,8 @@ dc_to_pool_name(DcId)  ->
     valid_dc_id(DcId) orelse error(invalid_dc_id, [DcId]),
     binary_to_atom(<<"mtp_dc_pool_", (integer_to_binary(DcId))/binary>>, utf8).
 
-
+-spec get(pid(), upstream(), #{addr := mtp_config:netloc_v4v6(),
+                               ad_tag => binary()}) -> downstream() | {error, atom()}.
 get(Pool, Upstream, #{addr := _} = Opts) ->
     gen_server:call(Pool, {get, Upstream, Opts}).
 
@@ -101,8 +102,12 @@ init(DcId) ->
     {ok, State2}.
 
 handle_call({get, Upstream, Opts}, _From, State) ->
-    {Downstream, State1} = handle_get(Upstream, Opts, State),
-    {reply, Downstream, State1};
+    case handle_get(Upstream, Opts, State) of
+        {empty, State1} ->
+            {reply, {error, empty}, State1};
+        {Downstream, State1} ->
+            {reply, Downstream, State1}
+    end;
 handle_call(add_connection, _From, State) ->
     State1 = connect(State),
     {reply, ok, State1};
@@ -151,14 +156,18 @@ handle_connected(Pid, #state{pending_downstreams = Pending,
 
 handle_get(Upstream, Opts, #state{downstreams = Ds,
                                   upstreams = Us} = St) ->
-    {Downstream, N, Ds1} = ds_get(Ds),
-    MonRef = erlang:monitor(process, Upstream),
-    Us1 = Us#{Upstream => {Downstream, MonRef}},
-    ok = mtp_down_conn:upstream_new(Downstream, Upstream, Opts),
-    {Downstream, maybe_spawn_connection(
-                   N,
-                   St#state{downstreams = Ds1,
-                            upstreams = Us1})}.
+    case ds_get(Ds) of
+        {Downstream, N, Ds1} ->
+            MonRef = erlang:monitor(process, Upstream),
+            Us1 = Us#{Upstream => {Downstream, MonRef}},
+            ok = mtp_down_conn:upstream_new(Downstream, Upstream, Opts),
+            {Downstream, maybe_spawn_connection(
+                           N,
+                           St#state{downstreams = Ds1,
+                                    upstreams = Us1})};
+        empty ->
+            {empty, maybe_restart_connection(St)}
+    end.
 
 handle_return(Upstream, #state{downstreams = Ds,
                                upstreams = Us} = St) ->
@@ -295,11 +304,15 @@ ds_add_downstream(Conn, St) ->
     pid_psq:add(Conn, St).
 
 %% Get least loaded downstream connection
--spec ds_get(ds_store()) -> {downstream(), pos_integer(), ds_store()}.
+-spec ds_get(ds_store()) -> {downstream(), pos_integer(), ds_store()} | empty.
 ds_get(St) ->
     %% TODO: should return real number of connections
-    {ok, {{Conn, N}, St1}} = pid_psq:get_min_priority(St),
-    {Conn, N, St1}.
+    case pid_psq:get_min_priority(St) of
+        {ok, {{Conn, N}, St1}} ->
+            {Conn, N, St1};
+        undefined ->
+            empty
+    end.
 
 %% Return connection back to storage
 -spec ds_return(downstream(), ds_store()) -> ds_store().
