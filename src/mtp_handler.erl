@@ -81,15 +81,19 @@ ranch_init({Ref, Transport, Opts}) ->
     {ok, Socket} = ranch:handshake(Ref),
     case init({Socket, Transport, Opts}) of
         {ok, State} ->
-            BufSize = application:get_env(?APP, upstream_socket_buffer_size,
-                                          ?MAX_SOCK_BUF_SIZE),
+            BufSize = application:get_env(?APP, upstream_socket_buffer_size, ?MAX_SOCK_BUF_SIZE),
+            Linger = case application:get_env(?APP, reset_close_socket, off) of
+                         off -> [];
+                         _ ->
+                             [{linger, {true, 0}}]
+                     end,
             ok = Transport:setopts(
                    Socket,
                    [{active, once},
                     %% {recbuf, ?MAX_SOCK_BUF_SIZE},
                     %% {sndbuf, ?MAX_SOCK_BUF_SIZE},
                     {buffer, BufSize}
-                   ]),
+                    | Linger]),
             gen_server:enter_loop(?MODULE, [], State);
         {stop, error} ->
             exit(normal)
@@ -214,7 +218,8 @@ handle_info(Other, S) ->
     {noreply, S}.
 
 terminate(_Reason, #state{started_at = Started, listener = Listener,
-                          addr = {Ip, _}, policy_state = PolicyState} = S) ->
+                          addr = {Ip, _}, policy_state = PolicyState,
+                          sock = Sock, transport = Trans} = S) ->
     case PolicyState of
         {ok, TlsDomain} ->
             try mtp_policy:dec(
@@ -228,6 +233,7 @@ terminate(_Reason, #state{started_at = Started, listener = Listener,
             ok
     end,
     maybe_close_down(S),
+    ok = Trans:close(Sock),
     mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Listener]}),
     Lifetime = erlang:system_time(millisecond) - Started,
     mtp_metric:histogram_observe(
@@ -319,7 +325,8 @@ parse_upstream_data(<<?TLS_START, _/binary>> = Data, #state{stage = init} = S) -
     parse_upstream_data(Data, S#state{stage = tls_hello});
 parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                      #state{stage = init, secret = Secret, listener = Listener, codec = Codec0,
-                            ad_tag = Tag, addr = {Ip, _} = Addr, policy_state = PState0} = S) ->
+                            ad_tag = Tag, addr = {Ip, _} = Addr, policy_state = PState0,
+                            sock = Sock, transport = Transport} = S) ->
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
             maybe_check_replay(Header),
@@ -335,6 +342,12 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                 end,
             mtp_metric:count_inc([?APP, protocol_ok, total],
                                  1, #{labels => [Listener, ProtoToReport]}),
+            case application:get_env(?APP, reset_close_socket, off) of
+                handshake_error ->
+                    ok = Transport:setopts(Sock, [{linger, {false, 0}}]);
+                _ ->
+                    ok
+            end,
             Codec1 = mtp_codec:replace(crypto, mtp_obfuscated, CryptoCodecSt, Codec0),
             PacketCodec = PacketLayerMod:new(),
             Codec2 = mtp_codec:replace(packet, PacketLayerMod, PacketCodec, Codec1),

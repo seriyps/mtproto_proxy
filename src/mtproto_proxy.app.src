@@ -85,6 +85,21 @@
         %% Default: off
         {replay_check_server_error_filter, first},
 
+        %% This option controls how proxy closes client sockets
+        %% (SO_LINGER timeout=0 socket option)
+        %% Can be useful if you have too many connection attempts with wrong
+        %% secret and protocol, which creates lots of sockets in
+        %% TIME_WAIT, ORPHANED and CLOSED state
+        %% Allowed values:
+        %% - off - never send RST
+        %% - handshake_error - (recommended) only send if client handshake failed because of:
+        %%   - wrong secret
+        %%   - disabled protocol
+        %%   - replay attack detected
+        %%   - policy check failed
+        %% - always - always close socket with RST
+        {reset_close_socket, off},
+
         %% Options for `mtp_session_storage` replay attack check
         %% Those settings are not precise! They are checked not in realtime, but
         %% once per minute.
