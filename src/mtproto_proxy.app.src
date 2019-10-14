@@ -70,21 +70,6 @@
         {init_dc_connections, 2},
         {clients_per_dc_connection, 300},
 
-        %% List of enabled replay-attack checks. See
-        %% https://habr.com/ru/post/452144/
-        %% session_storage - store last used 1st client packets in special
-        %% storage, drop connections with same 1st packet
-        %% Values: on/off
-        %% Default: off
-        {replay_check_session_storage, on},
-        %% server_error_filter - drop server error responses.
-        %% Values:
-        %%     first - drop server error only if it's 1st server packet
-        %%     on - drop all server error packets
-        %%     off - don't drop server errors
-        %% Default: off
-        {replay_check_server_error_filter, first},
-
         %% This option controls how proxy closes client sockets
         %% (SO_LINGER timeout=0 socket option)
         %% Can be useful if you have too many connection attempts with wrong
@@ -100,6 +85,21 @@
         %% - always - always close socket with RST
         {reset_close_socket, off},
 
+        %% server_error_filter - drop server error responses.
+        %% Values:
+        %%     first - drop server error only if it's 1st server packet
+        %%     on - drop all server error packets
+        %%     off - don't drop server errors
+        %% Default: off
+        {replay_check_server_error_filter, first},
+
+        %% List of enabled replay-attack checks. See
+        %% https://habr.com/ru/post/452144/
+        %% session_storage - store last used 1st client packets in special
+        %% storage, drop connections with same 1st packet
+        %% Values: on/off
+        %% Default: off
+        {replay_check_session_storage, on},
         %% Options for `mtp_session_storage` replay attack check
         %% Those settings are not precise! They are checked not in realtime, but
         %% once per minute.

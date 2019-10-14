@@ -2,8 +2,9 @@
 [
  {mtproto_proxy,
   %% see src/mtproto_proxy.app.src for examples.
-  %% DO NOT EDIT src/mtproto_proxy.app.src!!!
   [
+   %% PUT YOUR CUSTOM SETTINGS BELOW vvvvv
+
    %% {ports,
    %%  [#{name => mtp_handler_1,
    %%     listen_ip => "0.0.0.0",
@@ -11,6 +12,7 @@
    %%     secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
    %%     tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}
    %%  ]}
+   %% ^^^^^ END
    ]},
 
  %% Logging config

@@ -3,6 +3,8 @@ Erlang mtproto proxy
 
 This part of code was extracted from [@socksy_bot](https://t.me/socksy_bot).
 
+Support: https://t.me/erlang_mtproxy .
+
 Features
 --------
 
@@ -402,21 +404,17 @@ with fake-TLS domains from whitelist.
      <..>
 ```
 
-Now we can assign each customer unique fake-TLS domain and give them unique TLS secret.
+Now we can assign each customer unique fake-TLS domain, eg, `my-client1.example.com`
+and give them unique TLS secret.
 Because we only allow 10 connections with single fake-TLS secret, they will not be able to
-share their credentials with others:
+share their credentials with others. To add client's fake domain to whitelist:
 
 ```bash
 /opt/mtp_proxy/bin/mtp_proxy eval '
-PortName = mtp_handler_1,
-{ok, ProxySecret} = mtproto_proxy_app:get_port_secret(PortName),
-NumRecords = mtp_policy_table:table_size(customer_domains),
-SubDomain = mtp_handler:hex(<<NumRecords:16, (crypto:strong_rand_bytes(4))/binary>>),
-Domain = <<SubDomain/binary, ".google.com">>,
-mtp_policy_table:add(customer_domains, tls_domain, Domain),
-Secret = mtp_fake_tls:format_secret_hex(ProxySecret, Domain),
-io:format("Secret: ~s;\nDomain: ~s\n", [Secret, Domain]).'
+mtp_policy_table:add(customer_domains, tls_domain, "my-client1.example.com").'
 ```
+
+And then use http://seriyps.ru/mtpgen.html to generate unique link for them.
 
 ### IPv6
 
@@ -458,6 +456,9 @@ If your server have low amount of RAM, try to set
 {upstream_socket_buffer_size, 5120},
 {downstream_socket_buffer_size, 51200},
 {replay_check_session_storage, off},
+{init_timeout_sec, 10},
+{hibernate_timeout_sec, 30},
+{ready_timeout_sec, 120},  % close connection after 2min of inactivity
 ```
 
 this may make proxy slower, it can start to consume bit more CPU, will be vulnerable to replay attacks,
