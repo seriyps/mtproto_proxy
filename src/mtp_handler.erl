@@ -327,6 +327,9 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                      #state{stage = init, secret = Secret, listener = Listener, codec = Codec0,
                             ad_tag = Tag, addr = {Ip, _} = Addr, policy_state = PState0,
                             sock = Sock, transport = Transport} = S) ->
+    AllowedProtocols = allowed_protocols(),
+    (not is_tls_only(AllowedProtocols)) orelse
+        error({protocol_error, tls_client_hello_expected, Header}),
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
             maybe_check_replay(Header),
@@ -335,7 +338,7 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                     {true, _} when PacketLayerMod == mtp_secure ->
                         {mtp_secure_fake_tls, PState0};
                     {false, _} ->
-                        assert_protocol(PacketLayerMod),
+                        assert_protocol(PacketLayerMod, AllowedProtocols),
                         check_policy(Listener, Ip, undefined),
                         %FIXME: if any codebelow fail, we will get counter policy leak
                         {PacketLayerMod, {ok, undefined}}
@@ -372,8 +375,18 @@ parse_upstream_data(Bin, #state{stage = Stage, codec = Codec0} = S) when Stage =
     Codec = mtp_codec:push_back(first, Bin, Codec0),
     {incomplete, S#state{codec = Codec}}.
 
-assert_protocol(Protocol) ->
+
+allowed_protocols() ->
     {ok, AllowedProtocols} = application:get_env(?APP, allowed_protocols),
+    AllowedProtocols.
+
+is_tls_only([mtp_fake_tls]) -> true;
+is_tls_only(_) -> false.
+
+assert_protocol(Protocol) ->
+    assert_protocol(Protocol, allowed_protocols()).
+
+assert_protocol(Protocol, AllowedProtocols) ->
     lists:member(Protocol, AllowedProtocols)
         orelse error({protocol_error, disabled_protocol, Protocol}).
 
