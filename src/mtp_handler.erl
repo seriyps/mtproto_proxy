@@ -327,17 +327,20 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                      #state{stage = init, secret = Secret, listener = Listener, codec = Codec0,
                             ad_tag = Tag, addr = {Ip, _} = Addr, policy_state = PState0,
                             sock = Sock, transport = Transport} = S) ->
+    {TlsHandshakeDone, _} = mtp_codec:info(tls, Codec0),
     AllowedProtocols = allowed_protocols(),
-    (not is_tls_only(AllowedProtocols)) orelse
+    %% If the only enabled protocol is fake-tls and tls handshake haven't been performed yet - raise
+    %% protocol error.
+    (is_tls_only(AllowedProtocols) andalso not TlsHandshakeDone) andalso
         error({protocol_error, tls_client_hello_expected, Header}),
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
             maybe_check_replay(Header),
             {ProtoToReport, PState} =
-                case mtp_codec:info(tls, Codec0) of
-                    {true, _} when PacketLayerMod == mtp_secure ->
+                case TlsHandshakeDone of
+                    true when PacketLayerMod == mtp_secure ->
                         {mtp_secure_fake_tls, PState0};
-                    {false, _} ->
+                    false ->
                         assert_protocol(PacketLayerMod, AllowedProtocols),
                         check_policy(Listener, Ip, undefined),
                         %FIXME: if any codebelow fail, we will get counter policy leak
