@@ -52,16 +52,16 @@ try_decode_packet_len(Len, LenStripped, St) ->
             {incomplete, St}
     end.
 
--spec encode_packet(binary(), codec()) -> {iodata(), codec()}.
-encode_packet(Bin, St) ->
-    Size = byte_size(Bin),
+-spec encode_packet(iodata(), codec()) -> {iodata(), codec()}.
+encode_packet(Data, St) ->
+    Size = iolist_size(Data),
     Len = Size div 4,
     Packet =
         case Len < 127 of
             true ->
-                [Len | Bin];
+                [Len | Data];
             false ->
-                [<<127, Len:24/unsigned-little-integer>> | Bin]
+                [<<127, Len:24/unsigned-little-integer>> | Data]
         end,
     {Packet, St}.
 
