@@ -36,6 +36,7 @@
 -define(HANDSHAKE_TIMEOUT, 8000).
 -define(MAX_SOCK_BUF_SIZE, 1024 * 500).    % Decrease if CPU is cheaper than RAM
 -define(MAX_CODEC_BUFFERS, 5 * 1024 * 1024).
+-define(DEFAULT_CLIENTS_PER_CONN, 300).
 
 -ifndef(OTP_RELEASE).                           % pre-OTP21
 -define(WITH_STACKTRACE(T, R, S), T:R -> S = erlang:get_stacktrace(), ).
@@ -110,7 +111,7 @@ set_config(Conn, Option, Value) ->
 init([Pool, DcId]) ->
     self() ! do_connect,
     BpOpts = application:get_env(?APP, downstream_backpressure, #{}),
-    {ok, UpsPerDown} = application:get_env(?APP, clients_per_dc_connection),
+    UpsPerDown = application:get_env(?APP, clients_per_dc_connection, ?DEFAULT_CLIENTS_PER_CONN),
     BackpressureConf = build_backpressure_conf(UpsPerDown, BpOpts),
     {ok, #state{backpressure_conf = BackpressureConf,
                 pool = Pool,
@@ -128,7 +129,7 @@ handle_call({set_config, Name, Value}, _From, State) ->
                 ok = inet:setopts(State#state.sock, [{buffer, Value}]),
                 {{ok, OldSize}, State};
             downstream_backpressure when is_map(Value) ->
-                {ok, UpsPerDown} = application:get_env(?APP, clients_per_dc_connection),
+                UpsPerDown = application:get_env(?APP, clients_per_dc_connection, ?DEFAULT_CLIENTS_PER_CONN),
                 try build_backpressure_conf(UpsPerDown, Value) of
                     BpConfig ->
                         {{ok, State#state.backpressure_conf},

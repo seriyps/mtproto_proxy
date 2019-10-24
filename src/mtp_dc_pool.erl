@@ -33,7 +33,8 @@
 -define(SERVER, ?MODULE).
 -define(APP, mtproto_proxy).
 -define(BURST_MAX, 10).
--define(DEFAULT_INIT_CONNS, 4).
+-define(DEFAULT_INIT_CONNS, 2).
+-define(DEFAULT_CLIENTS_PER_CONN, 300).
 
 -type upstream() :: mtp_handler:handle().
 -type downstream() :: mtp_down_conn:handle().
@@ -224,12 +225,12 @@ maybe_spawn_connection(CurrentMin, #state{pending_downstreams = Pending} = St) -
     %% if N > X and len(pending) < Y -> connect()
     %% TODO: shrinking (by timer)
     ToSpawn =
-        case application:get_env(?APP, clients_per_dc_connection) of
-            {ok, N} when CurrentMin > N,
-                         Pending == [] ->
+        case application:get_env(?APP, clients_per_dc_connection, ?DEFAULT_CLIENTS_PER_CONN) of
+            N when CurrentMin > N,
+                   Pending == [] ->
                 2;
-            {ok, N} when CurrentMin > (N * 1.5),
-                         length(Pending) < ?BURST_MAX ->
+            N when CurrentMin > (N * 1.5),
+                   length(Pending) < ?BURST_MAX ->
                 %% To survive initial bursts
                 ?BURST_MAX - length(Pending);
             _ ->

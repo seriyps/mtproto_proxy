@@ -14,10 +14,46 @@
     stdlib
    ]},
   {env,[
+        %% Interface to listen for incoming connections
+        %% If not set, 0.0.0.0 will be used (listen on all IPs)
+        {listen_ip, "0.0.0.0"},
+        %% You can add as much as you want. Names and ports should be unique
+        {ports, [#{name => mtp_handler_1,
+                   port => 1443,
+                   %% You can tell each port to listen on specific IP.
+                   %% If not set, top-level listen_ip will be used.
+                   %% listen_ip => "1.2.3.4",
+
+                   %% secret should be 32 hex chars [0-9a-f]
+                   secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
+                   %% tag is what you get from @MTProxybot
+                   tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}]},
+
+        %% number of socket acceptors (per-port)
+        {num_acceptors, 60},
+        %% maximum number of open connections (per-port)
+        {max_connections, 64000},
+
+        %% It's possible to forbid connection from telegram client to proxy
+        %% with some of the protocols. Ti's recommended to set this to
+        %% only `{allowed_protocols, [mtp_secure, mtp_fake_tls]}` because those
+        %% protocols are more resistant to DPI detection. Connections by other
+        %% protocols will be immediately disallowed.
+        {allowed_protocols, [mtp_fake_tls, mtp_secure, mtp_abridged, mtp_intermediate]},
+
+        %% Connection policies.
+        %% See README.md for documentation
+        %% {policy,
+        %%  [{in_table, tls_domain, allowed_domains},
+        %%   {not_in_table, [client_ipv4], banned_ips},
+        %%   {max_connections, [port_name, tls_domain], 15}
+        %%  ]},
+
         %% Close connection if it failed to perform handshake in this many seconds
         {init_timeout_sec, 60},
+        %% Switch client to memory-saving mode after this many seconds of inactivity
         {hibernate_timeout_sec, 60},
-        %% Close connection after this many seconds of inactivity
+        %% Close client connection after this many seconds of inactivity
         {ready_timeout_sec, 1200},
 
         %% Telegram server uses your external IP address as part of encryption
@@ -36,40 +72,6 @@
           "https://digitalresistance.dog/myIp"]},
         %% {external_ip, "YOUR.SERVER.EXTERNAL.IP"},
 
-        %% Interface to listen for incoming connections
-        %% If not set, 0.0.0.0 will be used
-        {listen_ip, "0.0.0.0"},
-        %% You can add as much as you want. Names and ports should be unique
-        {ports, [#{name => mtp_handler_1,
-                   port => 1443,
-                   %% You can tell it to listen on specific IP.
-                   %% If not set, top-level listen_ip will be used.
-                   %% listen_ip => "1.2.3.4",
-
-                   %% secret should be 32 hex chars [0-9a-f]
-                   secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
-                   %% tag is what you get from @MTProxybot
-                   tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}]},
-        {num_acceptors, 60},
-        {max_connections, 40960},
-        %% It's possible to forbid connection from telegram client to proxy
-        %% with some of the protocols. Ti's recommended to set this to
-        %% only `{allowed_protocols, [mtp_secure, mtp_fake_tls]}` because those
-        %% protocols are more resistant to DPI detection. Connections by other
-        %% protocols will be immediately disallowed.
-        {allowed_protocols, [mtp_fake_tls, mtp_secure, mtp_abridged, mtp_intermediate]},
-
-        %% Connection policies.
-        %% See README.md for documentation
-        %% {policy,
-        %%  [{in_table, tls_domain, allowed_domains},
-        %%   {not_in_table, [client_ipv4], banned_ips},
-        %%   {max_connections, [port_name, tls_domain], 15}
-        %%  ]},
-
-        {init_dc_connections, 2},
-        {clients_per_dc_connection, 300},
-
         %% This option controls how proxy closes client sockets
         %% (SO_LINGER timeout=0 socket option)
         %% Can be useful if you have too many connection attempts with wrong
@@ -85,6 +87,9 @@
         %% - always - always close socket with RST
         {reset_close_socket, off},
 
+        %% List of enabled replay-attack checks. See
+        %% https://habr.com/ru/post/452144/
+
         %% server_error_filter - drop server error responses.
         %% Values:
         %%     first - drop server error only if it's 1st server packet
@@ -93,10 +98,8 @@
         %% Default: off
         {replay_check_server_error_filter, first},
 
-        %% List of enabled replay-attack checks. See
-        %% https://habr.com/ru/post/452144/
-        %% session_storage - store last used 1st client packets in special
-        %% storage, drop connections with same 1st packet
+        %% Store last used 1st client packets in special storage, drop
+        %% connections with same 1st packet
         %% Values: on/off
         %% Default: off
         {replay_check_session_storage, on},
@@ -138,6 +141,10 @@
         %%   {gc, 409600},        % if connection memory >X - do garbage collection
         %%   {total_mem, 3145728} % if connection memory >X - close connection
         %%  ]},
+
+        %% Multiplexing tuning
+        %% {init_dc_connections, 2},
+        %% {clients_per_dc_connection, 300},
 
         %% Downstream backpressure tuning
         %% Values are configured per downstream connection, so, for example, if
