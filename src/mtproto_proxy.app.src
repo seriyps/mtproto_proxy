@@ -130,6 +130,10 @@
         %% {upstream_socket_buffer_size, 51200},   %50kb
         %% {downstream_socket_buffer_size, 512000},   %500kb
 
+        %% Whether we should check CRC32 sum of packets encoded with mtp_full
+        %% codec. Setting this to `false' decreases CPU usage. Default: true
+        %% {mtp_full_check_crc32, true},
+
         %% Where to fetch telegram proxy configuration
         %% Mostly used to testing
         %% {proxy_secret_url, "https://core.telegram.org/getProxySecret"},

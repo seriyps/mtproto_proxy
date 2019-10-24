@@ -9,10 +9,11 @@ prop_codec(doc) ->
     "Tests that any 4-byte aligned binary can be encoded and decoded back".
 
 prop_codec() ->
-    ?FORALL(Bin, mtp_prop_gen:packet_4b(), codec(Bin)).
+    ?FORALL({CheckCRC, Bin}, {proper_types:boolean(), mtp_prop_gen:packet_4b()},
+            codec(Bin, CheckCRC)).
 
-codec(Bin) ->
-    Codec = mtp_full:new(),
+codec(Bin, CheckCRC) ->
+    Codec = mtp_full:new(0, 0, CheckCRC),
     {Data, Codec1} = mtp_full:encode_packet(Bin, Codec),
     {ok, Decoded, <<>>, _} = mtp_full:try_decode_packet(iolist_to_binary(Data), Codec1),
     Decoded == Bin.

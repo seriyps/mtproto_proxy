@@ -145,7 +145,7 @@ fullcbc_stream(Key, Iv, Stream) ->
 
 mk_fullcbc_codec(EncKey, EncIv, DecKey, DecIv) ->
     Crypto = mtp_aes_cbc:new(EncKey, EncIv, DecKey, DecIv, 16),
-    Packet = mtp_full:new(1, 1),
+    Packet = mtp_full:new(1, 1, true),
     mtp_codec:new(mtp_aes_cbc, Crypto,
                   mtp_full, Packet).
 

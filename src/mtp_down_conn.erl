@@ -495,10 +495,11 @@ down_handshake1(S) ->
     Schema = 1,                                 %AES
     Msg = mtp_rpc:encode_nonce({nonce, KeySelector, Schema, CryptoTs, Nonce}),
     Deadline = erlang:send_after(?HANDSHAKE_TIMEOUT, self(), handshake_timeout),
+    CheckCRC = application:get_env(?APP, mtp_full_check_crc32, true),
     S1 = S#state{stage = handshake_1,
                  %% Use fake encryption codec
                  codec = mtp_codec:new(mtp_noop_codec, mtp_noop_codec:new(),
-                                       mtp_full, mtp_full:new(-2, -2),
+                                       mtp_full, mtp_full:new(-2, -2, CheckCRC),
                                        false, undefined, ?MAX_CODEC_BUFFERS),
                  stage_state = {Deadline, KeySelector, Nonce, CryptoTs, Key}},
     down_send(Msg, S1).

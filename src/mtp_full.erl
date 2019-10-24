@@ -11,7 +11,7 @@
 -module(mtp_full).
 -behaviour(mtp_codec).
 
--export([new/0, new/2,
+-export([new/0, new/3,
          try_decode_packet/2,
          encode_packet/2]).
 -export_type([codec/0]).
@@ -20,7 +20,9 @@
 
 -record(full_st,
         {enc_seq_no :: integer(),
-         dec_seq_no :: integer()}).
+         dec_seq_no :: integer(),
+         check_crc = true :: boolean()}).
+
 -define(MIN_MSG_LEN, 12).
 -define(MAX_MSG_LEN,  16777216).                %2^24 - 16mb
 
@@ -32,17 +34,18 @@
 
 
 new() ->
-    new(0, 0).
+    new(0, 0, true).
 
-new(EncSeqNo, DecSeqNo) ->
+new(EncSeqNo, DecSeqNo, CheckCRC) ->
     #full_st{enc_seq_no = EncSeqNo,
-             dec_seq_no = DecSeqNo}.
+             dec_seq_no = DecSeqNo,
+             check_crc = CheckCRC}.
 
 try_decode_packet(<<4:32/little, Tail/binary>>, S) ->
     %% Skip padding
     try_decode_packet(Tail, S);
 try_decode_packet(<<Len:32/little, PktSeqNo:32/signed-little, Tail/binary>>,
-                  #full_st{dec_seq_no = SeqNo} = S) ->
+                  #full_st{dec_seq_no = SeqNo, check_crc = CheckCRC} = S) ->
     ((Len rem byte_size(?PAD)) == 0)
         orelse error({wrong_alignement, Len}),
     ((?MIN_MSG_LEN =< Len) and (Len =< ?MAX_MSG_LEN))
@@ -52,9 +55,14 @@ try_decode_packet(<<Len:32/little, PktSeqNo:32/signed-little, Tail/binary>>,
     BodyLen = Len - 4 - 4 - 4,
     case Tail of
         <<Body:BodyLen/binary, CRC:32/little, Rest/binary>> ->
-            PacketCrc = erlang:crc32([<<Len:32/little, PktSeqNo:32/little>> | Body]),
-            (CRC == PacketCrc)
-                orelse error({wrong_checksum, CRC, PacketCrc}),
+            case CheckCRC of
+                true ->
+                    PacketCrc = erlang:crc32([<<Len:32/little, PktSeqNo:32/little>> | Body]),
+                    (CRC == PacketCrc)
+                        orelse error({wrong_checksum, CRC, PacketCrc});
+                false ->
+                    ok
+            end,
             %% TODO: predict padding size from padding_size(Len)
             {ok, Body, trim_padding(Rest), S#full_st{dec_seq_no = SeqNo + 1}};
         _ ->

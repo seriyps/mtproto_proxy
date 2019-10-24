@@ -11,6 +11,7 @@
          intermediate/1, bench_intermediate/2,
          secure/1, bench_secure/2,
          full/1, bench_full/2,
+         full_nocheck/1, bench_full_nocheck/2,
          aes_cbc/1, bench_aes_cbc/2,
          obfuscated/1, bench_obfuscated/2,
          fold_dd_codec/1, bench_fold_dd_codec/2,
@@ -84,6 +85,17 @@ decode_all_full(Stream0, Codec0) ->
         {incomplete, _} ->
             []
     end.
+
+
+%% @doc bench mtp_full with disabled CRC32 verification check
+full_nocheck(init) ->
+    mtp_full:new(0, 0, false);
+full_nocheck({input, Codec}) ->
+    Packets = mk_front_packets(),
+    encode_all(Packets, mtp_full, Codec).
+
+bench_full_nocheck(Stream, Codec) ->
+    decode_all_full(Stream, Codec).
 
 
 %% @doc bench aes_cbc decryption

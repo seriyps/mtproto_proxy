@@ -415,6 +415,8 @@ mtp_policy_table:add(customer_domains, tls_domain, "my-client1.example.com").'
 ```
 
 And then use http://seriyps.ru/mtpgen.html to generate unique link for them.
+Be aware that domains table will be reset if proxy is restarted! Make sure you re-add them
+when proxy restarts (eg, via [systemd hook script](https://unix.stackexchange.com/q/326181/70382)).
 
 ### IPv6
 
@@ -476,6 +478,12 @@ it will use less CPU and will be better protected from replay attacks, but will 
 {replay_check_session_storage_opts,
   #{max_memory_mb => 2048,
     max_age_minutes => 1440}},
+```
+
+One more option to decrease CPU usage is to disable CRC32 checksum check:
+
+```erlang
+{mtp_full_check_crc32, false},
 ```
 
 Also, for highload setups it's recommended to increase sysctl parameters:

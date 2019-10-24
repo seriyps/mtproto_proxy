@@ -74,7 +74,7 @@ ranch_init({Ref, Transport, Opts}) ->
 
 init({Socket, Transport, Opts}) ->
     Codec = mtp_codec:new(mtp_noop_codec, mtp_noop_codec:new(),
-                          mtp_full, mtp_full:new(-2, -2)),
+                          mtp_full, mtp_full:new(-2, -2, true)),
     State = #hs_state{sock = Socket,
                       transport = Transport,
                       secret = maps:get(secret, Opts),
