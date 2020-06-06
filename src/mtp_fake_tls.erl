@@ -298,9 +298,14 @@ add_padding_ext(RealExtensions, ExtLen) ->
 %% Parses "ServerHello" (the one produced by from_client_hello/2). Used for tests only.
 parse_server_hello(<<?TLS_REC_HANDSHAKE, ?TLS_12_VERSION, HSLen:?u16, Handshake:HSLen/binary,
                      ?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, CCLen:?u16, ChangeCipher:CCLen/binary,
-                     ?TLS_REC_DATA, ?TLS_12_VERSION, DLen:?u16, Data:DLen/binary,
+                     ?TLS_REC_DATA, ?TLS_12_VERSION, DLen:?u16,
                      Tail/binary>>) ->
-    {Handshake, ChangeCipher, Data, Tail};
+    case Tail of
+        <<Data:DLen/binary, Tail2/binary>> ->
+            {Handshake, ChangeCipher, Data, Tail2};
+        _ ->
+            incomplete
+    end;
 parse_server_hello(B) when byte_size(B) < (512 + 5) ->
     incomplete.
 
