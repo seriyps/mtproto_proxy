@@ -21,6 +21,7 @@
 -ifdef(TEST).
 -export([make_client_hello/2,
          make_client_hello/4,
+         make_dummy_change_cipher/0,
          parse_server_hello/1]).
 -endif.
 
@@ -294,6 +295,13 @@ add_padding_ext(RealExtensions, ExtLen) ->
                    PadSize:?u16,
                    (binary:copy(<<0>>, PadSize))/binary>>,
     <<RealExtensions/binary, PaddingExt/binary>>.
+
+%% https://tools.ietf.org/html/rfc8446#appendix-D.4
+make_dummy_change_cipher() ->
+    <<?TLS_REC_CHANGE_CIPHER,
+      ?TLS_12_VERSION,
+      1:?u16,
+      1>>.
 
 %% Parses "ServerHello" (the one produced by from_client_hello/2). Used for tests only.
 parse_server_hello(<<?TLS_REC_HANDSHAKE, ?TLS_12_VERSION, HSLen:?u16, Handshake:HSLen/binary,

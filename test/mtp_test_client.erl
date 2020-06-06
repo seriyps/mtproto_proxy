@@ -49,6 +49,7 @@ connect(Host, Port, Seed, Secret, DcId, Protocol0) ->
                 ok = gen_tcp:send(Sock, ClientHello),
                 %% Let's hope whole server hello will arrive in a single chunk
                 Tail_ = recv_server_hello(Sock, Timeout, <<>>),
+                ok = gen_tcp:send(Sock, mtp_fake_tls:make_dummy_change_cipher()),
                 {mtp_secure, true, mtp_fake_tls:new(), Tail_};
             _ -> {Protocol0, false, undefined, <<>>}
         end,
