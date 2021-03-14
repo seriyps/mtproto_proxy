@@ -4,14 +4,14 @@
   %% see src/mtproto_proxy.app.src for examples.
   [
    %% PUT YOUR CUSTOM SETTINGS BELOW vvvvv
-
-   %% {ports,
-   %%  [#{name => mtp_handler_1,
-   %%     listen_ip => "0.0.0.0",
-   %%     port => 1443,
-   %%     secret => <<"d0d6e111bada5511fcce9584deadbeef">>,
-   %%     tag => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}
-   %%  ]}
+		{allowed_protocols, [mtp_fake_tls]},	%%-----yhb  Only allow fake-TLS connections with ee/base64-secrets
+   		{ports,
+ 			[#{name => mtp_handler_1,
+				listen_ip => "0.0.0.0",
+				port => 1443,
+				secret => <<"44e38d07b3860dbc0bd31370ac0b3df2">>,
+				tag => <<"2babdb5675cb08376c23013d68c3159d">>}
+			]}
    %% ^^^^^ END
    ]},
 
