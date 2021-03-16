@@ -46,12 +46,21 @@
 -define(MAX_IN_PACKET_SIZE, 65535).      % sizeof(uint16) - 1
 -define(MAX_OUT_PACKET_SIZE, 16384).     % 2^14 https://tools.ietf.org/html/rfc8446#section-5.1
 
--define(TLS_10_VERSION, 63, 8).			%%-----yhb  3-63，1-8
--define(TLS_12_VERSION, 63, 10).		%%-----yhb  3-63，3-10
--define(TLS_13_VERSION, 63, 11).		%%-----yhb  3-63，4-11
--define(TLS_REC_CHANGE_CIPHER, 53).		%%-----yhb  20-53
--define(TLS_REC_HANDSHAKE, 55).			%%-----yhb  22-55
--define(TLS_REC_DATA, 56).				%%-----yhb  23-56
+-define(TLS_10_VERSION, 3, 1).			%%-----yhb  3-63，1-8
+-define(TLS_12_VERSION, 3, 3).		%%-----yhb  3-63，3-10
+-define(TLS_13_VERSION, 3, 4).		%%-----yhb  3-63，4-11
+-define(TLS_REC_CHANGE_CIPHER, 20).		%%-----yhb  20-53
+-define(TLS_REC_HANDSHAKE, 22).			%%-----yhb  22-55
+-define(TLS_REC_DATA, 23).				%%-----yhb  23-56
+
+
+
+%-define(TLS_10_VERSION, 63, 8).			%%-----yhb  3-63，1-8
+%-define(TLS_12_VERSION, 63, 10).		%%-----yhb  3-63，3-10
+%-define(TLS_13_VERSION, 63, 11).		%%-----yhb  3-63，4-11
+%-define(TLS_REC_CHANGE_CIPHER, 53).		%%-----yhb  20-53
+%-define(TLS_REC_HANDSHAKE, 55).			%%-----yhb  22-55
+%-define(TLS_REC_DATA, 56).				%%-----yhb  23-56
 
 -define(TLS_12_DATA, ?TLS_REC_DATA, ?TLS_12_VERSION).
 
