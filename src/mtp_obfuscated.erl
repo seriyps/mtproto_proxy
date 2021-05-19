@@ -153,17 +153,17 @@ get_dc(<<_:4/binary, DcId:16/signed-little-integer>>) ->
 
 
 new(EncKey, EncIV, DecKey, DecIV) ->
-    #st{decrypt = crypto:stream_init('aes_ctr', DecKey, DecIV),
-        encrypt = crypto:stream_init('aes_ctr', EncKey, EncIV)}.
+    #st{decrypt = crypto_stream_init('aes_ctr', DecKey, DecIV),
+        encrypt = crypto_stream_init('aes_ctr', EncKey, EncIV)}.
 
 -spec encrypt(iodata(), codec()) -> {binary(), codec()}.
 encrypt(Data, #st{encrypt = Enc} = St) ->
-    {Enc1, Encrypted} = crypto:stream_encrypt(Enc, Data),
+    {Enc1, Encrypted} = crypto_stream_encrypt(Enc, Data),
     {Encrypted, St#st{encrypt = Enc1}}.
 
 -spec decrypt(iodata(), codec()) -> {binary(), binary(), codec()}.
 decrypt(Encrypted, #st{decrypt = Dec} = St) ->
-    {Dec1, Data} = crypto:stream_encrypt(Dec, Encrypted),
+    {Dec1, Data} = crypto_stream_encrypt(Dec, Encrypted),
     {Data, <<>>, St#st{decrypt = Dec1}}.
 
 -spec try_decode_packet(iodata(), codec()) -> {ok, Decoded :: binary(), Tail :: binary(), codec()}
@@ -181,6 +181,22 @@ encode_packet(Msg, S) ->
 bin_rev(Bin) ->
     %% binary:encode_unsigned(binary:decode_unsigned(Bin, little)).
     list_to_binary(lists:reverse(binary_to_list(Bin))).
+
+-if(?OTP_RELEASE >= 23).
+crypto_stream_init(aes_ctr, Key, IV) ->
+    crypto:crypto_init(aes_256_ctr, Key, IV, []).
+
+crypto_stream_encrypt(State, Data) ->
+    {State, crypto:crypto_update(State, Data)}.
+
+-else.
+crypto_stream_init(Algo, Key, IV) ->
+    crypto:stream_init(Algo, Key, IV).
+
+crypto_stream_encrypt(State, Data) ->
+    crypto:stream_encrypt(State, Data).
+
+-endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

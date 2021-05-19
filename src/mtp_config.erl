@@ -45,12 +45,6 @@
 -record(state, {tab :: ets:tid(),
                 timer :: gen_timeout:tout()}).
 
--ifndef(OTP_RELEASE).                           % pre-OTP21
--define(WITH_STACKTRACE(T, R, S), T:R -> S = erlang:get_stacktrace(), ).
--else.
--define(WITH_STACKTRACE(T, R, S), T:R:S ->).
--endif.
-
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -182,7 +176,7 @@ update(#state{tab = Tab}, force) ->
     update_config(Tab);
 update(State, _) ->
     try update(State, force)
-    catch ?WITH_STACKTRACE(Class, Reason, Stack)
+    catch Class:Reason:Stack ->
             ?log(error, "Err updating proxy settings: ~s",
                  [lager:pr_stacktrace(Stack, {Class, Reason})]) %XXX lager-specific
     end.
@@ -254,7 +248,7 @@ update_ip([Url | Fallbacks]) ->
         IpStr= string:trim(Body),
         {ok, _} = inet:parse_ipv4strict_address(IpStr), %assert
         application:set_env(?APP, external_ip, IpStr)
-    catch ?WITH_STACKTRACE(Class, Reason, Stack)
+    catch Class:Reason:Stack ->
             ?log(error, "Failed to update IP with ~s service: ~s",
                  [Url, lager:pr_stacktrace(Stack, {Class, Reason})]), %XXX - lager-specific
             update_ip(Fallbacks)
@@ -272,7 +266,9 @@ update_ip([]) ->
 
 http_get(Url) ->
     {ok, Vsn} = application:get_key(mtproto_proxy, vsn),
-    UserAgent = "MTProtoProxy/" ++ Vsn ++ " (+https://github.com/seriyps/mtproto_proxy)",
+    OtpVersion = erlang:system_info(otp_release),
+    UserAgent = ("MTProtoProxy/" ++ Vsn ++ " OTP-" ++ OtpVersion ++
+                     " (+https://github.com/seriyps/mtproto_proxy)"),
     Headers = [{"User-Agent", UserAgent}],
     {ok, {{_, 200, _}, _, Body}} =
         httpc:request(get, {Url, Headers}, [{timeout, 3000}], ?OPTS),

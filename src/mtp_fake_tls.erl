@@ -119,7 +119,7 @@ from_client_hello(Data, Secret) ->
         [as_tls_frame(?TLS_REC_HANDSHAKE, SrvHello0),
          as_tls_frame(?TLS_REC_CHANGE_CIPHER, [1]),
          as_tls_frame(?TLS_REC_DATA, FakeHttpData)],
-    SrvHelloDigest = crypto:hmac(sha256, Secret, [ClientDigest | Response0]),
+    SrvHelloDigest = hmac(sha256, Secret, [ClientDigest | Response0]),
     SrvHello = make_srv_hello(SrvHelloDigest, SessionId, KeyShare),
     Response = [as_tls_frame(?TLS_REC_HANDSHAKE, SrvHello),
                 CC,
@@ -174,7 +174,7 @@ parse_extension(_Type, Data) ->
 
 make_server_digest(<<Left:?DIGEST_POS/binary, _:?DIGEST_LEN/binary, Right/binary>>, Secret) ->
     Msg = [Left, binary:copy(<<0>>, ?DIGEST_LEN), Right],
-    crypto:hmac(sha256, Secret, Msg).
+    hmac(sha256, Secret, Msg).
 
 make_key_share(Exts) ->
     case lists:keyfind(?EXT_KEY_SHARE, 1, Exts) of
@@ -276,7 +276,7 @@ make_client_hello(Timestamp, SessionId, Secret, SniDomain) when byte_size(Sessio
            end,
     FakeRandom0 = binary:copy(<<0>>, ?DIGEST_LEN),
     Hello0 = Pack(FakeRandom0),
-    Digest = crypto:hmac(sha256, Secret, Hello0),
+    Digest = hmac(sha256, Secret, Hello0),
     EncTimestamp = <<(binary:copy(<<0>>, ?DIGEST_LEN - 4))/binary, Timestamp:32/unsigned-little>>,
     FakeRandom = crypto:exor(Digest, EncTimestamp),
     Pack(FakeRandom).
@@ -355,3 +355,11 @@ as_tls_data_frame(Bin) ->
 as_tls_frame(Type, Data) ->
     Size = iolist_size(Data),
     [<<Type, ?TLS_12_VERSION, Size:?u16>> | Data].
+
+-if(?OTP_RELEASE >= 23).
+hmac(Algo, Key, Str) ->
+    crypto:mac(hmac, Algo, Key, Str).
+-else.
+hmac(Algo, Key, Str) ->
+    crypto:hmac(Algo, Key, Str).
+-endif.

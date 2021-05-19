@@ -30,17 +30,17 @@
 new(EncKey, EncIv, DecKey, DecIv, BlockSize) ->
     #baes_st{
        block_size = BlockSize,
-       encrypt = {EncKey, EncIv},
-       decrypt = {DecKey, DecIv}
+       encrypt = cbc_init(EncKey, EncIv, true),
+       decrypt = cbc_init(DecKey, DecIv, false)
       }.
 
 -spec encrypt(iodata(), codec()) -> {binary(), codec()}.
 encrypt(Data, #baes_st{block_size = BSize,
-                       encrypt = {EncKey, EncIv}} = S) ->
+                       encrypt = Enc} = S) ->
     ((iolist_size(Data) rem BSize) == 0)
         orelse error({data_not_aligned, BSize, byte_size(Data)}),
-    Encrypted = crypto:block_encrypt(aes_cbc, EncKey, EncIv, Data),
-    {Encrypted, S#baes_st{encrypt = {EncKey, crypto:next_iv(aes_cbc, Encrypted)}}}.
+    {Enc1, Encrypted} = cbc_encrypt(Enc, Data),
+    {Encrypted, S#baes_st{encrypt = Enc1}}.
 
 
 -spec decrypt(binary(), codec()) -> {Data :: binary(), Tail :: binary(), codec()}.
@@ -62,10 +62,9 @@ decrypt(Data, #baes_st{block_size = BSize} = S) ->
             do_decrypt(ToDecode, Reminder, S)
     end.
 
-do_decrypt(Data, Tail, #baes_st{decrypt = {DecKey, DecIv}} = S) ->
-    Decrypted = crypto:block_decrypt(aes_cbc, DecKey, DecIv, Data),
-    NewDecIv = crypto:next_iv(aes_cbc, Data),
-    {Decrypted, Tail, S#baes_st{decrypt = {DecKey, NewDecIv}}}.
+do_decrypt(Data, Tail, #baes_st{decrypt = Dec} = S) ->
+    {Dec1, Decrypted} = cbc_decrypt(Dec, Data),
+    {Decrypted, Tail, S#baes_st{decrypt = Dec1}}.
 
 try_decode_packet(Bin, S) ->
     case decrypt(Bin, S) of
@@ -77,6 +76,32 @@ try_decode_packet(Bin, S) ->
 
 encode_packet(Bin, S) ->
     encrypt(Bin, S).
+
+-if(?OTP_RELEASE >= 23).
+cbc_init(Key, IV, IsEncrypt) ->
+    crypto:crypto_init(aes_256_cbc, Key, IV, [{encrypt, IsEncrypt}]).
+
+cbc_encrypt(State, Data) ->
+    %% Assuming state was created with {encrypt, true}
+    {State, crypto:crypto_update(State, Data)}.
+
+cbc_decrypt(State, Data) ->
+    %% Assuming state was created with {encrypt, false}
+    {State, crypto:crypto_update(State, Data)}.
+-else.
+cbc_init(Key, IV, _IsEncrypt) ->
+    {Key, IV}.
+
+cbc_encrypt({EncKey, EncIv}, Data) ->
+    Encrypted = crypto:block_encrypt(aes_cbc, EncKey, EncIv, Data),
+    {{EncKey, crypto:next_iv(aes_cbc, Encrypted)}, Encrypted}.
+
+cbc_decrypt({DecKey, DecIv}, Data) ->
+    Decrypted = crypto:block_decrypt(aes_cbc, DecKey, DecIv, Data),
+    NewDecIv = crypto:next_iv(aes_cbc, Data),
+    {{DecKey, NewDecIv}, Decrypted}.
+
+-endif.
 
 
 -ifdef(TEST).
