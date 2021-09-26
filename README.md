@@ -345,8 +345,8 @@ Where:
   Tables will be created automatically when proxy is started; data in tables is not preserved when proxy
   is restarted!
   You can add or remove new values from table dynamically at any moment with commands like:
-    - `/opt/mtp_proxy/bin/mtp_proxy eval 'mtp_policy_table:add(my_table, tls_domain, "google.com")'` to add
-    - `/opt/mtp_proxy/bin/mtp_proxy eval 'mtp_policy_table:del(my_table, tls_domain, "google.com")'` to remove
+    - `/opt/mtp_proxy/bin/mtp_proxy eval 'mtp_policy_table:add(my_table, tls_domain, "google.com").'` to add
+    - `/opt/mtp_proxy/bin/mtp_proxy eval 'mtp_policy_table:del(my_table, tls_domain, "google.com").'` to remove
 
 Some policy recipes / examples below
 
@@ -379,14 +379,14 @@ And then add IPs to blacklist with command:
 
 ```bash
 /opt/mtp_proxy/bin/mtp_proxy eval '
-mtp_policy_table:add(ip_blacklist, client_ipv4, "203.0.113.1")'
+mtp_policy_table:add(ip_blacklist, client_ipv4, "203.0.113.1").'
 ```
 
 Remove from blacklist:
 
 ```bash
 /opt/mtp_proxy/bin/mtp_proxy eval '
-mtp_policy_table:del(ip_blacklist, client_ipv4, "203.0.113.1")'
+mtp_policy_table:del(ip_blacklist, client_ipv4, "203.0.113.1").'
 ```
 
 #### Personal proxy / multi-secret proxy
