@@ -346,7 +346,7 @@ build_backpressure_conf(UpstreamsPerDownstream, BpConf) ->
         orelse error({invalid_bytes_per_upstream, PacketsPerUpstream}),
     {PacketsTotal, BytesTotal, PacketsPerUpstream, BytesPerUpstream}.
 
-%% Bumb counters of non-acked packets
+%% Bump counters of non-acked packets
 non_ack_bump(Upstream, Size, #state{non_ack_count = Cnt,
                                     non_ack_bytes = Oct,
                                     upstreams = Ups} = St) ->

@@ -163,7 +163,7 @@ This will:
 
 ### Try to start in foreground mode
 
-This step is optional, but it can be usefull to test if everything works as expected
+This step is optional, but it can be useful to test if everything works as expected
 
 ```bash
 ./start.sh

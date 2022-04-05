@@ -503,7 +503,7 @@ do_check_health([{qlen, Limit} | _], #{message_queue_len := QLen} = Health) when
     overflow;
 do_check_health([{gc, Limit} | Other], #{total_mem := TotalMem}) when TotalMem > Limit ->
     %% Maybe it doesn't makes sense to do GC if queue len is more than, eg, 50?
-    %% In this case allmost all memory will be in msg queue
+    %% In this case almost all memory will be in msg queue
     mtp_metric:count_inc([?APP, healthcheck, total], 1,
                          #{labels => [force_gc]}),
     erlang:garbage_collect(self()),

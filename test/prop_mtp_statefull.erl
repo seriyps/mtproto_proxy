@@ -278,7 +278,7 @@ stop(Cfg) ->
     Cfg.
 
 
-%% Proces - wrapper holding client connections and states
+%% Process - wrapper holding client connections and states
 shim_add(Id, Conn) ->
     ?MODULE ! {add, Id, Conn}.
 
