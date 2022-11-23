@@ -159,7 +159,7 @@ ping_session(Host, Port, Secret, DcId, Protocol, Timeout) ->
 unencrypted_cli_packet(Payload) ->
     Now = erlang:system_time(microsecond),
     %% Is 128 enough?
-    PadSize = rand:uniform(128 div 4) * 4,              % should be alined to 4b
+    PadSize = rand:uniform(128 div 4) * 4,              % should be aligned to 4b
     Padding = crypto:strong_rand_bytes(PadSize),
     unencrypted_cli_packet(Payload, Now, Padding).
 

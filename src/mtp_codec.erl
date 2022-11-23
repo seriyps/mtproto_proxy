@@ -1,7 +1,7 @@
 %%% @author Sergey <me@seriyps.ru>
 %%% @copyright (C) 2018, Sergey
 %%% @doc
-%%% This module provieds a comination of crypto and packet codecs.
+%%% This module provieds a combination of crypto and packet codecs.
 %%% Crypto is always outer layer and packet is inner:
 %%% ( --- packet --- )
 %%%   (-- crypto --)
