@@ -436,9 +436,13 @@ policy_max_conns_case(Cfg) when is_list(Cfg) ->
     Secret = ?config(mtp_secret, Cfg),
     SureClose =
         fun(Cli) ->
+                timer:sleep(500),               %FIXME: sometimes metric returns not_found
                 PreClosed =
-                    mtp_test_metric:get_tags(
-                      count, [?APP, in_connection_closed, total], [?FUNCTION_NAME]),
+                    case mtp_test_metric:get_tags(
+                      count, [?APP, in_connection_closed, total], [?FUNCTION_NAME]) of
+                        not_found -> 0;
+                        N -> N
+                    end,
                 ok = mtp_test_client:close(Cli),
                 ok = mtp_test_metric:wait_for_value(
                        count, [?APP, in_connection_closed, total], [?FUNCTION_NAME], PreClosed + 1, 5000)

@@ -1,0 +1,67 @@
+# install:
+#   - sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
+
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+jobs:
+  test:
+    name: OTP-${{matrix.otp}}, OS-${{matrix.os}}
+    runs-on: ${{matrix.os}}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - "ubuntu-20.04"
+        rebar3: ["3.18.0"]
+        otp:
+          - "25.1"
+          - "24.3"
+          - "23.3"
+          - "22.3"
+        include:
+          - otp: "21.3"
+            rebar3: "3.15.2"
+            os: "ubuntu-20.04"
+    env:
+      SHELL: /bin/sh            # needed for erlexec
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+          rebar3-version: ${{matrix.rebar3}}
+
+      - name: compile
+        run: rebar3 compile
+
+      - name: xref
+        run: rebar3 xref
+
+      - name: eunit
+        run: rebar3 eunit
+
+      - name: ct
+        run: rebar3 ct
+
+      - name: dialyzer
+        run: rebar3 dialyzer
+
+      - name: proper
+        run: rebar3 proper
+
+      - name: Upload test logs artifact
+        uses: actions/upload-artifact@v2
+        if: failure()
+        with:
+          name: test_logs_otp-${{matrix.otp}}
+          path: |
+            _build/test/logs/*
+            !_build/test/logs/ct_run*/datadir

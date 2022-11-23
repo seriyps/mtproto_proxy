@@ -33,6 +33,7 @@ notify(Type, Name, Value, Extra) ->
 get(Type, Name) ->
     get(Type, Name, #{}).
 
+-spec get(count | gauge | histogram, [atom()], [atom()]) -> integer() | not_found.
 get(Type, Name, Extra) ->
     gen_server:call(?MODULE, {get, Type, Name, Extra}).
 
