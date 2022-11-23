@@ -86,7 +86,7 @@ encode_handshake({handshake, SenderPID, PeerPID}) ->
 
 %% It expects that packet segmentation was done on previous layer
 %% See mtproto/mtproto-proxy.c:process_client_packet
--spec decode_packet(binary()) -> packet() | error.
+-spec decode_packet(binary()) -> packet() | {unknown, binary(), binary()}.
 decode_packet(<<?RPC_PROXY_ANS, _AnsFlags:4/binary, ConnId:64/signed-little, Data/binary>>) ->
     %% mtproto/mtproto-proxy.c:client_send_message
     {proxy_ans, ConnId, Data};
@@ -94,7 +94,9 @@ decode_packet(<<?RPC_CLOSE_EXT, ConnId:64/signed-little>>) ->
     {close_ext, ConnId};
 decode_packet(<<?RPC_SIMPLE_ACK, ConnId:64/signed-little, Confirm:4/binary>>) ->
     %% mtproto/mtproto-proxy.c:push_rpc_confirmation
-    {simple_ack, ConnId, Confirm}.
+    {simple_ack, ConnId, Confirm};
+decode_packet(<<Tag:4/binary, Tail/binary>>) ->
+    {unknown, Tag, Tail}.
 
 
 encode_packet({data, Msg}, {{ConnId, ClientAddr, ProxyTag}, ProxyAddr}) ->

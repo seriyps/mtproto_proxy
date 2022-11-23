@@ -286,7 +286,11 @@ handle_rpc({close_ext, ConnId}, St) ->
             St1
     end;
 handle_rpc({simple_ack, ConnId, Confirm}, S) ->
-    up_send({simple_ack, self(), Confirm}, ConnId, S).
+    up_send({simple_ack, self(), Confirm}, ConnId, S);
+handle_rpc({unknown, Tag, Tail}, S) ->
+    ?log(info, "Unknown packet from backend. Tag ~w, tail: ~w", [Tag, Tail]),
+    S.
+
 
 -spec down_send(iodata(), #state{}) -> {ok, #state{}}.
 down_send(Packet, #state{sock = Sock, codec = Codec, dc_id = DcId} = St) ->
