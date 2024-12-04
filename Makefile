@@ -25,7 +25,7 @@ config/prod-sys.config: config/sys.config.example
 config/prod-vm.args: config/vm.args.example
 	[ -f $@ ] && diff -u $@ $^ || true
 	cp -i -b $^ $@
-	@IP=$(shell curl -s -4 -m 10 http://ip.seriyps.ru  || curl -s -4 -m 10 https://digitalresistance.dog/myIp) \
+	@IP=$(shell curl -s -4 -m 10 http://ip.seriyps.com  || curl -s -4 -m 10 https://digitalresistance.dog/myIp) \
 		&& sed -i s/@0\.0\.0\.0/@$${IP}/ $@
 
 user:

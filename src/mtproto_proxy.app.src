@@ -1,6 +1,6 @@
 {application, mtproto_proxy,
  [{description, "High-performance Telegram MTProto proxy server"},
-  {vsn, "0.7.1"},
+  {vsn, "0.7.3"},
   {registered, []},
   {mod, { mtproto_proxy_app, []}},
   {applications,
@@ -66,7 +66,7 @@
         %% `ip_lookup_services' will be tried one-by-one: if 1st is not responding,
         %% 2nd one will be tried and so on
         {ip_lookup_services,
-         ["http://ipv4.seriyps.ru/",
+         ["http://ipv4.seriyps.com/",
           "http://v4.ident.me/",
           "http://ipv4.icanhazip.com/",
           "https://digitalresistance.dog/myIp"]},

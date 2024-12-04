@@ -414,7 +414,7 @@ share their credentials with others. To add client's fake domain to whitelist:
 mtp_policy_table:add(customer_domains, tls_domain, "my-client1.example.com").'
 ```
 
-And then use http://seriyps.ru/mtpgen.html to generate unique link for them.
+And then use https://seriyps.com/mtpgen.html to generate unique link for them.
 Be aware that domains table will be reset if proxy is restarted! Make sure you re-add them
 when proxy restarts (eg, via [systemd hook script](https://unix.stackexchange.com/q/326181/70382)).
 
