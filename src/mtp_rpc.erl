@@ -19,7 +19,7 @@
 %% Helpers
 -export([inet_pton/1,
          encode_ip_port/2]).
--export_type([codec/0]).
+-export_type([conn_id/0, packet/0, codec/0]).
 
 -dialyzer(no_improper_lists).
 

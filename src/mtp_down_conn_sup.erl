@@ -20,7 +20,7 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
--spec start_conn(pid(), mtp_conf:dc_id()) -> {ok, pid()}.
+-spec start_conn(pid(), mtp_config:dc_id()) -> {ok, pid()}.
 start_conn(Pool, DcId) ->
     supervisor:start_child(?SERVER, [Pool, DcId]).
 

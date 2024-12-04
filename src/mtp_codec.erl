@@ -16,7 +16,7 @@
          try_decode_packet/2,
          encode_packet/2,
          fold_packets/4, fold_packets_if/4]).
--export_type([codec/0]).
+-export_type([codec/0, packet_codec/0]).
 
 -type state() :: any().
 -type crypto_codec() :: mtp_aes_cbc

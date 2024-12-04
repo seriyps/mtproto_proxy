@@ -26,7 +26,7 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
--export_type([netloc_v4v6/0]).
+-export_type([dc_id/0, netloc/0, netloc_v4v6/0]).
 
 -type dc_id() :: integer().
 -type netloc() :: {inet:ip4_address(), inet:port_number()}.

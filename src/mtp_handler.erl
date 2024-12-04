@@ -70,7 +70,7 @@ keys_str() ->
     [{Name, Port, hex(Secret)}
      || {Name, Port, Secret} <- application:get_env(?APP, ports, [])].
 
--spec send(pid(), mtp_rpc:packet()) -> ok.
+-spec send(pid(), {proxy_ans, pid(), binary()} | {simple_ack, pid(), binary()} | {close_ext, pid()}) -> ok.
 send(Upstream, Packet) ->
     gen_server:cast(Upstream, Packet).
 
