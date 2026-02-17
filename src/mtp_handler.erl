@@ -22,7 +22,7 @@
 
 -type handle() :: pid().
 
--include_lib("hut/include/hut.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(MAX_SOCK_BUF_SIZE, 1024 * 50).    % Decrease if CPU is cheaper than RAM
 -define(MAX_UP_INIT_BUF_SIZE, 1024 * 1024).     %1mb
@@ -103,7 +103,7 @@ init({Socket, Transport, [Name, Secret, Tag]}) ->
     mtp_metric:count_inc([?APP, in_connection, total], 1, #{labels => [Name]}),
     case Transport:peername(Socket) of
         {ok, {Ip, Port}} ->
-            ?log(info, "~s: new connection ~s:~p", [Name, inet:ntoa(Ip), Port]),
+            ?LOG_INFO("~s: new connection ~s:~p", [Name, inet:ntoa(Ip), Port]),
             {TimeoutKey, TimeoutDefault} = state_timeout(init),
             Timer = gen_timeout:new(
                       #{timeout => {env, ?APP, TimeoutKey, TimeoutDefault}}),
@@ -126,7 +126,7 @@ init({Socket, Transport, [Name, Secret, Tag]}) ->
             {ok, State};
         {error, Reason} ->
             mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Name]}),
-            ?log(info, "Can't read peername: ~p", [Reason]),
+            ?LOG_INFO("Can't read peername: ~p", [Reason]),
             {stop, error}
     end.
 
@@ -147,7 +147,7 @@ handle_cast({proxy_ans, Down, ?SRV_ERROR = Data},
     %% Server replied with server error; it might be another kind of replay attack;
     %% Don't send this packet to client so proxy won't be fingerprinted
     ok = mtp_down_conn:ack(Down, 1, iolist_size(Data)),
-    ?log(warning, "~s: protocol_error srv_error_filtered", [inet:ntoa(Ip)]),
+    ?LOG_WARNING("~s: protocol_error srv_error_filtered", [inet:ntoa(Ip)]),
     mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Listener, srv_error_filtered]}),
     {noreply,
      case Filter of
@@ -166,14 +166,14 @@ handle_cast({proxy_ans, Down, Data}, #state{down = Down, srv_error_filter = Filt
          end,
     maybe_check_health(bump_timer(S2));
 handle_cast({close_ext, Down}, #state{down = Down, sock = USock, transport = UTrans} = S) ->
-    ?log(debug, "asked to close connection by downstream"),
+    ?LOG_DEBUG("asked to close connection by downstream"),
     ok = UTrans:close(USock),
     {stop, normal, S#state{down = undefined}};
 handle_cast({simple_ack, Down, Confirm}, #state{down = Down} = S) ->
-    ?log(info, "Simple ack: ~p, ~p", [Down, Confirm]),
+    ?LOG_INFO("Simple ack: ~p, ~p", [Down, Confirm]),
     {noreply, S};
 handle_cast(Other, State) ->
-    ?log(warning, "Unexpected msg ~p", [Other]),
+    ?LOG_WARNING("Unexpected msg ~p", [Other]),
     {noreply, State}.
 
 handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
@@ -189,14 +189,14 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
             {noreply, bump_timer(S1)}
     catch error:{protocol_error, Type, Extra} ->
             mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Listener, Type]}),
-            ?log(warning, "~s: protocol_error ~p ~p", [inet:ntoa(Ip), Type, Extra]),
+            ?LOG_WARNING("~s: protocol_error ~p ~p", [inet:ntoa(Ip), Type, Extra]),
             {stop, normal, maybe_close_down(S)}
     end;
 handle_info({tcp_closed, Sock}, #state{sock = Sock} = S) ->
-    ?log(debug, "upstream sock closed"),
+    ?LOG_DEBUG("upstream sock closed"),
     {stop, normal, maybe_close_down(S)};
 handle_info({tcp_error, Sock, Reason}, #state{sock = Sock} = S) ->
-    ?log(warning, "upstream sock error: ~p", [Reason]),
+    ?LOG_WARNING("upstream sock error: ~p", [Reason]),
     {stop, normal, maybe_close_down(S)};
 
 handle_info(timeout, #state{timer = Timer, timer_state = TState, listener = Listener} = S) ->
@@ -204,7 +204,7 @@ handle_info(timeout, #state{timer = Timer, timer_state = TState, listener = List
         true when TState == stop;
                   TState == init ->
             mtp_metric:count_inc([?APP, inactive_timeout, total], 1, #{labels => [Listener]}),
-            ?log(info, "inactive timeout in state ~p", [TState]),
+            ?LOG_INFO("inactive timeout in state ~p", [TState]),
             {stop, normal, S};
         true when TState == hibernate ->
             mtp_metric:count_inc([?APP, inactive_hibernate, total], 1, #{labels => [Listener]}),
@@ -214,7 +214,7 @@ handle_info(timeout, #state{timer = Timer, timer_state = TState, listener = List
             {noreply, S#state{timer = Timer1}}
     end;
 handle_info(Other, S) ->
-    ?log(warning, "Unexpected msg ~p", [Other]),
+    ?LOG_WARNING("Unexpected msg ~p", [Other]),
     {noreply, S}.
 
 terminate(_Reason, #state{started_at = Started, listener = Listener,
@@ -226,7 +226,7 @@ terminate(_Reason, #state{started_at = Started, listener = Listener,
                   application:get_env(?APP, policy, []),
                   Listener, Ip, TlsDomain)
             catch T:R ->
-                    ?log(warning, "Failed to decrement policy: ~p:~p", [T, R])
+                    ?LOG_WARNING("Failed to decrement policy: ~p:~p", [T, R])
             end;
         _ ->
             %% Failed before policy was stored in state. Eg, because of "policy_error"
@@ -239,7 +239,7 @@ terminate(_Reason, #state{started_at = Started, listener = Listener,
     mtp_metric:histogram_observe(
       [?APP, session_lifetime, seconds],
       erlang:convert_time_unit(Lifetime, millisecond, native), #{labels => [Listener]}),
-    ?log(info, "terminate ~p", [_Reason]),
+    ?LOG_INFO("terminate ~p", [_Reason]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -431,7 +431,7 @@ check_policy(Listener, Ip, Domain) ->
     end.
 
 up_send(Packet, #state{stage = tunnel, codec = UpCodec} = S) ->
-    %% ?log(debug, ">Up: ~p", [Packet]),
+    %% ?LOG_DEBUG(">Up: ~p", [Packet]),
     {Encoded, UpCodec1} = mtp_codec:encode_packet(Packet, UpCodec),
     ok = up_send_raw(Encoded, S),
     {ok, S#state{codec = UpCodec1}}.
@@ -452,13 +452,13 @@ up_send_raw(Data, #state{sock = Sock,
                                   mtp_metric:count_inc(
                                     [?APP, upstream_send_error, total], 1,
                                     #{labels => [Listener, Reason]}),
-                              ?log(warning, "Upstream send error: ~p", [Reason]),
+                              ?LOG_WARNING("Upstream send error: ~p", [Reason]),
                               throw({stop, normal, S})
                       end
               end, #{labels => [Listener]}).
 
 down_send(Packet, #state{down = Down} = S) ->
-    %% ?log(debug, ">Down: ~p", [Packet]),
+    %% ?LOG_DEBUG(">Down: ~p", [Packet]),
     case mtp_down_conn:send(Down, Packet) of
         ok ->
             {ok, S};
@@ -472,7 +472,7 @@ handle_unknown_upstream(#state{down = Down, sock = USock, transport = UTrans} = 
     ok = UTrans:close(USock),
     receive
         {'$gen_cast', {close_ext, Down}} ->
-            ?log(debug, "asked to close connection by downstream"),
+            ?LOG_DEBUG("asked to close connection by downstream"),
             throw({stop, normal, S#state{down = undefined}})
     after 0 ->
             throw({stop, got_unknown_upstream, S})
@@ -512,7 +512,7 @@ check_health() ->
 do_check_health([{qlen, Limit} | _], #{message_queue_len := QLen} = Health) when QLen > Limit ->
     mtp_metric:count_inc([?APP, healthcheck, total], 1,
                          #{labels => [message_queue_len]}),
-    ?log(warning, "Upstream too large queue_len=~w, health=~p", [QLen, Health]),
+    ?LOG_WARNING("Upstream too large queue_len=~w, health=~p", [QLen, Health]),
     overflow;
 do_check_health([{gc, Limit} | Other], #{total_mem := TotalMem}) when TotalMem > Limit ->
     %% Maybe it doesn't makes sense to do GC if queue len is more than, eg, 50?
@@ -525,7 +525,7 @@ do_check_health([{total_mem, Limit} | _Other], #{total_mem := TotalMem} = Health
       TotalMem > Limit ->
     mtp_metric:count_inc([?APP, healthcheck, total], 1,
                          #{labels => [total_memory]}),
-    ?log(warning, "Process too large total_mem=~p, health=~p", [TotalMem / 1024, Health]),
+    ?LOG_WARNING("Process too large total_mem=~p, health=~p", [TotalMem / 1024, Health]),
     overflow;
 do_check_health([_Ok | Other], Health) ->
     do_check_health(Other, Health);

@@ -16,30 +16,19 @@
    ]},
 
  %% Logging config
- {lager,
-  [{log_root, "/var/log/mtproto-proxy"},
-   {crash_log, "crash.log"},
-   {handlers,
-    [
-     {lager_console_backend,
-      [{level, critical}]},
-
-     {lager_file_backend,
-      [{file, "application.log"},
-       {level, info},
-
-       %% Do fsync only on critical messages
-       {sync_on, critical},
-       %% If we logged more than X messages in a second, flush the rest
-       {high_water_mark, 300},
-       %% If we hit hwm and msg queue len is >X, flush the queue
-       {flush_queue, true},
-       {flush_threshold, 2000},
-       %% How often to check if log should be rotated
-       {check_interval, 5000},
-       %% Rotate when file size is 100MB+
-       {size, 104857600}
-      ]}
+ {kernel,
+  [{logger_level, info},
+   {logger,
+    [{handler, default, logger_std_h,
+      #{level => info,
+        config => #{type => file,
+                    file => "/var/log/mtproto-proxy/application.log",
+                    max_no_bytes => 104857600,  % 100MB
+                    max_no_files => 10,
+                    filesync_repeat_interval => no_repeat}}},
+     {handler, console, logger_std_h,
+      #{level => critical,
+        config => #{type => standard_io}}}
     ]}]},
  {sasl,
   [{errlog_type, error}]}

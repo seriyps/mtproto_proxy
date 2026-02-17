@@ -28,7 +28,7 @@
 
 -export_type([codec/0, meta/0]).
 
--include_lib("hut/include/hut.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -dialyzer(no_improper_lists).
 
@@ -108,7 +108,7 @@ from_client_hello(Data, Secret) ->
     #client_hello{pseudorandom = ClientDigest,
                   session_id = SessionId,
                   extensions = Extensions} = CliHlo = parse_client_hello(Data),
-    ?log(debug, "TLS ClientHello=~p", [CliHlo]),
+    ?LOG_DEBUG("TLS ClientHello=~p", [CliHlo]),
     ServerDigest = make_server_digest(Data, Secret),
     <<Zeroes:(?DIGEST_LEN - 4)/binary, Timestamp:32/unsigned-little>> = XoredDigest =
         crypto:exor(ClientDigest, ServerDigest),

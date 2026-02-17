@@ -27,7 +27,7 @@
          terminate/2, code_change/3]).
 -export_type([handle/0, upstream_opts/0]).
 
--include_lib("hut/include/hut.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(SERVER, ?MODULE).
 -define(APP, mtproto_proxy).
@@ -129,12 +129,12 @@ handle_call({set_config, Name, Value}, _From, State) ->
                         {{ok, State#state.backpressure_conf},
                           State#state{backpressure_conf = BpConfig}}
                 catch Type:Reason ->
-                        ?log(error, "~p: not updating downstream_backpressure: ~p",
+                        ?LOG_ERROR("~p: not updating downstream_backpressure: ~p",
                              [Type, Reason]),
                         {ignored, State}
                 end;
             _ ->
-                ?log(warning, "set_config ~p=~p ignored", [Name, Value]),
+                ?LOG_WARNING("set_config ~p=~p ignored", [Name, Value]),
                 {ignored, State}
         end,
     {reply, Response, State1}.
@@ -164,8 +164,8 @@ handle_info(do_connect, #state{dc_id = DcId} = State) ->
         {ok, St1} = connect(DcId, State),
         {noreply, St1}
     catch Class:Reason:Stack ->
-            ?log(error, "Down connect to dc=~w error: ~s",
-                 [DcId, lager:pr_stacktrace(Stack, {Class, Reason})]), %XXX lager-specific
+            ?LOG_ERROR("Down connect to dc=~w error: ~s",
+                 [DcId, erl_error:format_exception(Class, Reason, Stack)]),
             erlang:send_after(300, self(), do_connect),
             {noreply, State}
     end;
@@ -182,7 +182,7 @@ handle_info(handshake_timeout, #state{stage = Stage, dc_id = DcId} = St) ->
 
 terminate(_Reason, #state{upstreams = Ups}) ->
     %% Should I do this or dc_pool? Maybe only when reason is 'normal'?
-    ?log(warning, "Downstream terminates with reason ~p; len(upstreams)=~p",
+    ?LOG_WARNING("Downstream terminates with reason ~p; len(upstreams)=~p",
          [_Reason, map_size(Ups)]),
     Self = self(),
     lists:foreach(
@@ -201,7 +201,7 @@ handle_send(Data, Upstream, #state{upstreams = Ups,
             Packet = mtp_rpc:encode_packet({data, Data}, {UpstreamStatic, ProxyAddr}),
             down_send(Packet, St);
         _ ->
-            ?log(warning, "Upstream=~p not found", [Upstream]),
+            ?LOG_WARNING("Upstream=~p not found", [Upstream]),
             {{error, unknown_upstream}, St}
     end.
 
@@ -214,7 +214,7 @@ handle_upstream_new(Upstream, Opts, #state{upstreams = Ups,
     UpsStatic = {ConnId, iolist_to_binary(mtp_rpc:encode_ip_port(Ip, Port)), AdTag},
     Ups1 = Ups#{Upstream => {UpsStatic, 0, 0}},
     UpsRev1 = UpsRev#{ConnId => Upstream},
-    ?log(debug, "New upstream=~p conn_id=~p", [Upstream, ConnId]),
+    ?LOG_DEBUG("New upstream=~p conn_id=~p", [Upstream, ConnId]),
     St#state{upstreams = Ups1,
              upstreams_rev = UpsRev1}.
 
@@ -232,7 +232,7 @@ handle_upstream_closed(Upstream, #state{upstreams = Ups,
             down_send(Packet, St2);
         error ->
             %% It happens when we get rpc_close_ext
-            ?log(info, "Unknown upstream ~p", [Upstream]),
+            ?LOG_INFO("Unknown upstream ~p", [Upstream]),
             {ok, St}
     end.
 
@@ -282,13 +282,13 @@ handle_rpc({close_ext, ConnId}, St) ->
             St2#state{upstreams = Ups1,
                       upstreams_rev = UpsRev1};
         error ->
-            ?log(warning, "Unknown upstream ~p", [ConnId]),
+            ?LOG_WARNING("Unknown upstream ~p", [ConnId]),
             St1
     end;
 handle_rpc({simple_ack, ConnId, Confirm}, S) ->
     up_send({simple_ack, self(), Confirm}, ConnId, S);
 handle_rpc({unknown, Tag, Tail}, S) ->
-    ?log(info, "Unknown packet from backend. Tag ~w, tail: ~w", [Tag, Tail]),
+    ?LOG_INFO("Unknown packet from backend. Tag ~w, tail: ~w", [Tag, Tail]),
     S.
 
 
@@ -318,7 +318,7 @@ up_send(Packet, ConnId, #state{upstreams_rev = UpsRev} = St) ->
                     St
             end;
         error ->
-            ?log(warning, "Unknown connection_id=~w", [ConnId]),
+            ?LOG_WARNING("Unknown connection_id=~w", [ConnId]),
             %% WHY!!!?
             %% ClosedPacket = mtp_rpc:encode_packet(remote_closed, ConnId),
             %% {ok, St1} = down_send(ClosedPacket, St),
@@ -460,7 +460,7 @@ connect(DcId, S) ->
             mtp_metric:count_inc([?APP, out_connect_ok, total], 1,
                                  #{labels => [DcId]}),
             AddrStr = inet:ntoa(Host),
-            ?log(info, "~s:~p: TCP connected", [AddrStr, Port]),
+            ?LOG_INFO("~s:~p: TCP connected", [AddrStr, Port]),
             down_handshake1(S#state{sock = Sock,
                                     netloc = {Host, Port}});
         {error, Reason} = Err ->
@@ -558,7 +558,7 @@ down_handshake3(Pkt, #state{stage_state = {Deadline, PrevSenderPid}, pool = Pool
     {handshake, _SenderPid, PeerPid} = mtp_rpc:decode_handshake(Pkt),
     (PeerPid == PrevSenderPid) orelse error({wrong_sender_pid, PeerPid}),
     ok = mtp_dc_pool:ack_connected(Pool, self()),
-    ?log(info, "~s:~w: dc=~w handshake complete", [inet:ntoa(Addr), Port, DcId]),
+    ?LOG_INFO("~s:~w: dc=~w handshake complete", [inet:ntoa(Addr), Port, DcId]),
     {ok, S#state{stage = tunnel,
                  stage_state = undefined}}.
 

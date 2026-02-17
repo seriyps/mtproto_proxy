@@ -253,7 +253,12 @@ To change default settings, change `mtproto_proxy` section of `prod-sys.config` 
     ]}
    ]},
 
- {lager,
+ {kernel,
+  [{logger_level, info},
+   {logger,
+    [{handler, default, logger_std_h,
+      #{config => #{file => "/var/log/mtproto-proxy/application.log"}}}
+    ]}]},
 <...>
 ```
 (so, remove `%%`s) and replace `port` / `secret` / `tag` with yours.
@@ -281,7 +286,7 @@ To do so, just add more configs to `ports` section, separated by comma, eg:
     ]}
    ]},
 
- {lager,
+ {kernel,
 <...>
 ```
 
@@ -453,7 +458,7 @@ different `listen_ip` (one v4 and one v6):
     ]}
    ]},
 
- {lager,
+ {kernel,
 <...>
 ```
 

@@ -32,7 +32,7 @@
 -type netloc() :: {inet:ip4_address(), inet:port_number()}.
 -type netloc_v4v6() :: {inet:ip_address(), inet:port_number()}.
 
--include_lib("hut/include/hut.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(TAB, ?MODULE).
 -define(IPS_KEY(DcId), {id, DcId}).
@@ -145,7 +145,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(update, #state{timer = Timer} = State) ->
     update(State, soft),
-    ?log(info, "Config updated"),
+    ?LOG_INFO("Config updated"),
     Timer1 = gen_timeout:bump(
                gen_timeout:reset(Timer)),
     {noreply, State#state{timer = Timer1}}.
@@ -154,7 +154,7 @@ handle_info(timeout, #state{timer = Timer} =State) ->
     case gen_timeout:is_expired(Timer) of
         true ->
             update(State, soft),
-            ?log(info, "Config updated"),
+            ?LOG_INFO("Config updated"),
             Timer1 = gen_timeout:bump(
                        gen_timeout:reset(Timer)),
             {noreply, State#state{timer = Timer1}};
@@ -177,8 +177,8 @@ update(#state{tab = Tab}, force) ->
 update(State, _) ->
     try update(State, force)
     catch Class:Reason:Stack ->
-            ?log(error, "Err updating proxy settings: ~s",
-                 [lager:pr_stacktrace(Stack, {Class, Reason})]) %XXX lager-specific
+            ?LOG_ERROR("Err updating proxy settings: ~s",
+                 [erl_error:format_exception(Class, Reason, Stack)])
     end.
 
 update_key(Tab) ->
@@ -249,8 +249,8 @@ update_ip([Url | Fallbacks]) ->
         {ok, _} = inet:parse_ipv4strict_address(IpStr), %assert
         application:set_env(?APP, external_ip, IpStr)
     catch Class:Reason:Stack ->
-            ?log(error, "Failed to update IP with ~s service: ~s",
-                 [Url, lager:pr_stacktrace(Stack, {Class, Reason})]), %XXX - lager-specific
+            ?LOG_ERROR("Failed to update IP with ~s service: ~s",
+                 [Url, erl_error:format_exception(Class, Reason, Stack)]),
             update_ip(Fallbacks)
     end;
 update_ip([]) ->

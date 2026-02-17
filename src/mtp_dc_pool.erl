@@ -28,7 +28,7 @@
          terminate/2, code_change/3]).
 -export_type([status/0]).
 
--include_lib("hut/include/hut.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(SERVER, ?MODULE).
 -define(APP, mtproto_proxy).
@@ -194,13 +194,13 @@ handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
                 {Pid, DsM1} ->
                     Pending1 = lists:delete(Pid, Pending),
                     Ds1 = ds_remove(Pid, Ds),
-                    ?log(error, "Downstream=~p is down. reason=~p", [Pid, Reason]),
+                    ?LOG_ERROR("Downstream=~p is down. reason=~p", [Pid, Reason]),
                     maybe_restart_connection(
                       St#state{pending_downstreams = Pending1,
                                downstreams = Ds1,
                                downstream_monitors = DsM1});
                 _ ->
-                    ?log(error, "Unexpected DOWN. ref=~p, pid=~p, reason=~p", [MonRef, Pid, Reason]),
+                    ?LOG_ERROR("Unexpected DOWN. ref=~p, pid=~p, reason=~p", [MonRef, Pid, Reason]),
                     St
             end
     end.
@@ -321,7 +321,7 @@ ds_return(Pid, St) ->
         {ok, St1} ->
             St1;
         undefined ->
-            ?log(warning, "Attempt to release unknown connection ~p", [Pid]),
+            ?LOG_WARNING("Attempt to release unknown connection ~p", [Pid]),
             St
     end.
 

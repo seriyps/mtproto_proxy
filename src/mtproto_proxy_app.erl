@@ -19,7 +19,7 @@
 
 -define(APP, mtproto_proxy).
 
--include_lib("hut/include/hut.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -type proxy_port() :: #{name := any(),
                         port := inet:port_number(),
@@ -66,7 +66,7 @@ reload_config() ->
     %% TODO: "Removed" will always be empty; to handle it properly we should merge env
     %% from .app file with NewConfig
     {Changed, New, Removed} = diff_env(NewEnv, PreEnv),
-    ?log(info, "Updating config; changed=~p, new=~p, deleted=~p", [Changed, New, Removed]),
+    ?LOG_INFO("Updating config; changed=~p, new=~p, deleted=~p", [Changed, New, Removed]),
     config_change(Changed, New, Removed).
 
 read_sys_config() ->
@@ -203,7 +203,7 @@ config_changed(Action, ports, Ports)  when Action == new; Action == changed ->
     ok;
 config_changed(Action, K, V) ->
     %% Most of the other config options are applied automatically without extra work
-    ?log(info, "Config ~p ~p to ~p ignored", [K, Action, V]),
+    ?LOG_INFO("Config ~p ~p to ~p ignored", [K, Action, V]),
     ok.
 
 downstream_connections() ->
@@ -235,11 +235,11 @@ build_urls(Host, Port, Secret, Protocols) ->
 
 -ifdef(TEST).
 report(Fmt, Args) ->
-    ?log(debug, Fmt, Args).
+    ?LOG_DEBUG(Fmt, Args).
 -else.
 report(Fmt, Args) ->
     io:format(Fmt ++ "\n", Args),
-    ?log(info, Fmt, Args).
+    ?LOG_INFO(Fmt, Args).
 -endif.
 
 -ifdef(TEST).

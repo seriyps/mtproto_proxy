@@ -35,7 +35,7 @@
 
 -type db_val() :: binary() | integer() | atom().
 
--include_lib("hut/include/hut.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -spec check([rule()], any(), inet:ip_address(), binary() | undefined) -> [rule()].
 check(Rules, ListenerName, ClientIp, TlsDomain) ->
@@ -105,7 +105,7 @@ val({client_ipv6_subnet, Mask} = T, #vars{ip_family = inet6, client_ip = Ip}) wh
     convert(T, Ip);
 val(Policy, Vars) when is_atom(Policy);
                        is_tuple(Policy) ->
-    ?log(debug, "Policy ~p not applicable ~p", [Policy, Vars]),
+    ?LOG_DEBUG("Policy ~p not applicable ~p", [Policy, Vars]),
     throw(not_applicable).
 
 

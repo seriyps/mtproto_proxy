@@ -244,8 +244,6 @@ disable_log() ->
 
 %% Setup / teardown
 setup(DcCfg0) ->
-    application:ensure_all_started(lager),
-    lager:set_loglevel(lager_console_backend, critical), %XXX lager-specific
     disable_log(),
     {ok, Pid} = mtp_test_metric:start_link(),
     PubKey = crypto:strong_rand_bytes(128),
