@@ -13,6 +13,7 @@
          echo_secure_case/1,
          echo_abridged_many_packets_case/1,
          echo_tls_case/1,
+         echo_tls_long_hello_case/1,
          ipv6_connect_case/1,
          packet_too_large_case/1,
          policy_max_conns_case/1,
@@ -131,6 +132,25 @@ echo_tls_case(Cfg) when is_list(Cfg) ->
     Port = ?config(mtp_port, Cfg),
     Secret = ?config(mtp_secret, Cfg),
     Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, {mtp_fake_tls, <<"example.com">>}),
+    Cli1 = ping(Cli0),
+    ?assertEqual(
+       1, mtp_test_metric:get_tags(
+            count, [?APP, protocol_ok, total], [?FUNCTION_NAME, mtp_secure_fake_tls])),
+    ok = mtp_test_client:close(Cli1).
+
+
+%% @doc Test TLS handshake with long ClientHello (2000 bytes) to simulate newer Telegram clients
+echo_tls_long_hello_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
+echo_tls_long_hello_case({post, Cfg}) ->
+    stop_single(Cfg);
+echo_tls_long_hello_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    %% Test with 2000-byte ClientHello (newer Telegram clients send longer packets)
+    Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, {mtp_fake_tls, <<"example.com">>, 2000}),
     Cli1 = ping(Cli0),
     ?assertEqual(
        1, mtp_test_metric:get_tags(

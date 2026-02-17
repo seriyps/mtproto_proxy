@@ -30,8 +30,8 @@
 -define(HEALTH_CHECK_INTERVAL, 5000).
 % telegram server responds with "l\xfe\xff\xff" if client packet MTProto is invalid
 -define(SRV_ERROR, <<108, 254, 255, 255>>).
--define(TLS_START, 22, 3, 1, 2, 0, 1, 0, 1, 252, 3, 3).
--define(TLS_CLIENT_HELLO_LEN, 512).
+-define(TLS_START, 22, 3, 1).
+-define(TLS_CLIENT_HELLO_MIN_LEN, 512).
 
 
 -define(APP, mtproto_proxy).
@@ -311,16 +311,29 @@ handle_upstream_data(Bin, #state{codec = Codec0} = S0) ->
 parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
                      #state{stage = tls_hello, secret = Secret, codec = Codec0,
                             addr = {Ip, _}, listener = Listener} = S) when
-      byte_size(AllData) >= (?TLS_CLIENT_HELLO_LEN + 5) ->
-    assert_protocol(mtp_fake_tls),
-    <<Data:(?TLS_CLIENT_HELLO_LEN + 5)/binary, Tail/binary>> = AllData,
-    {ok, Response, Meta, TlsCodec} = mtp_fake_tls:from_client_hello(Data, Secret),
-    check_tls_policy(Listener, Ip, Meta),
-    Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
-    Codec = mtp_codec:push_back(tls, Tail, Codec1),
-    ok = up_send_raw(Response, S),        %FIXME: if this send fail, we will get counter policy leak
-    {ok, S#state{codec = Codec, stage = init,
-                 policy_state = {ok, maps:get(sni_domain, Meta, undefined)}}};
+      byte_size(AllData) >= 5 ->
+    %% TLS record format: Type(1) + Version(2) + Length(2) + Payload(Length)
+    %% We need at least 5 bytes to read the header
+    <<?TLS_START, TlsPacketLen:16/unsigned-big, _/binary>> = AllData,
+    %% Validate minimum length
+    (TlsPacketLen >= ?TLS_CLIENT_HELLO_MIN_LEN) orelse
+        error({protocol_error, tls_client_hello_too_short, TlsPacketLen}),
+    FullPacketSize = 5 + TlsPacketLen,
+    case byte_size(AllData) >= FullPacketSize of
+        true ->
+            assert_protocol(mtp_fake_tls),
+            <<Data:FullPacketSize/binary, Tail/binary>> = AllData,
+            {ok, Response, Meta, TlsCodec} = mtp_fake_tls:from_client_hello(Data, Secret),
+            check_tls_policy(Listener, Ip, Meta),
+            Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
+            Codec = mtp_codec:push_back(tls, Tail, Codec1),
+            ok = up_send_raw(Response, S),        %FIXME: if this send fail, we will get counter policy leak
+            {ok, S#state{codec = Codec, stage = init,
+                         policy_state = {ok, maps:get(sni_domain, Meta, undefined)}}};
+        false ->
+            %% Wait for more data
+            {incomplete, S}
+    end;
 parse_upstream_data(<<?TLS_START, _/binary>> = Data, #state{stage = init} = S) ->
     parse_upstream_data(Data, S#state{stage = tls_hello});
 parse_upstream_data(<<Header:64/binary, Rest/binary>>,

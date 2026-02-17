@@ -1,18 +1,19 @@
 {"1.2.0",
-[{<<"erlang_psq">>,{pkg,<<"erlang_psq">>,<<"1.0.0">>},0},
+[{<<"erlang_psq">>,
+  {git,"https://github.com/seriyps/psq",
+       {ref,"46329ccb60f27d7d4c3f3643441ccef6c5f9c89c"}},
+  0},
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"hut">>,{pkg,<<"hut">>,<<"1.3.0">>},0},
  {<<"lager">>,{pkg,<<"lager">>,<<"3.9.1">>},0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.0">>},0}]}.
 [
 {pkg_hash,[
- {<<"erlang_psq">>, <<"995E328461A5949A54BDFC7686609A08EFB82313914F9AEAD494A2644629EA26">>},
  {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
  {<<"hut">>, <<"71F2F054E657C03F959CF1ACC43F436EA87580696528CA2A55C8AFB1B06C85E7">>},
  {<<"lager">>, <<"5885BC71308CD38F9D025C8ECDE4E5CCE1CE8565F80BFC6199865C845D6DBE95">>},
  {<<"ranch">>, <<"9583F47160CA62AF7F8D5DB11454068EAA32B56EEADF984D4F46E61A076DF5F2">>}]},
 {pkg_hash_ext,[
- {<<"erlang_psq">>, <<"03DA24C3AA84313D57603B6A4B51EB46B4B787FA95BF5668D03E101A466DDFB2">>},
  {<<"goldrush">>, <<"99CB4128CFFCB3227581E5D4D803D5413FA643F4EB96523F77D9E6937D994CEB">>},
  {<<"hut">>, <<"7E15D28555D8A1F2B5A3A931EC120AF0753E4853A4C66053DB354F35BF9AB563">>},
  {<<"lager">>, <<"3F59BA75A04A99E5F18BF91C89F46DCE536F83C6CB415FE26E6E75A62BEF37DC">>},

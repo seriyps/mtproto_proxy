@@ -3,7 +3,7 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--export([prop_codec_small/1, prop_codec_big/1, prop_stream/1]).
+-export([prop_codec_small/1, prop_codec_big/1, prop_stream/1, prop_variable_length_hello/1]).
 
 prop_codec_small(doc) ->
     "Tests that any binary below 65535 bytes can be encoded and decoded back as single frame".
@@ -60,3 +60,28 @@ decode_stream(BinStream, Codec, Acc) ->
         {ok, DecPacket, Tail, Codec1} ->
             decode_stream(Tail, Codec1, [DecPacket | Acc])
     end.
+
+
+prop_variable_length_hello(doc) ->
+    "Tests that ClientHello with various packet lengths can be parsed correctly".
+
+prop_variable_length_hello() ->
+    ?FORALL({TlsPacketLen, Secret, Domain},
+            {proper_types:integer(512, 4096),
+             proper_types:binary(16),
+             <<"example.com">>},
+            variable_length_hello(TlsPacketLen, Secret, Domain)).
+
+variable_length_hello(TlsPacketLen, Secret, Domain) ->
+    Timestamp = erlang:system_time(second),
+    SessionId = crypto:strong_rand_bytes(32),
+    ClientHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, Secret, Domain, TlsPacketLen),
+    %% Verify packet has correct length
+    ?assertEqual(5 + TlsPacketLen, byte_size(ClientHello)),
+    %% Verify handshake can be parsed
+    {ok, _Response, Meta, _Codec} = mtp_fake_tls:from_client_hello(ClientHello, Secret),
+    %% Verify metadata
+    ?assertEqual(SessionId, maps:get(session_id, Meta)),
+    ?assertEqual(Timestamp, maps:get(timestamp, Meta)),
+    ?assertEqual(Domain, maps:get(sni_domain, Meta)),
+    true.

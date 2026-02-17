@@ -5,6 +5,13 @@ This part of code was extracted from [@socksy_bot](https://t.me/socksy_bot).
 
 Support: https://t.me/erlang_mtproxy .
 
+‼️ DON'T USE TELEGRAM FOR SENSITIVE DATA AND POLITICAL ACTIVITY
+---------------------------------------------------------------
+
+Telegram is known to cooperate with governments, especially with russian.
+Telegram is NOT neutral and NOT fully independent. Please only use Telegram
+for non-sensitive messaging. For private messaging prefer Signal or Session.
+
 Features
 --------
 
@@ -94,7 +101,7 @@ your server's OS (see below).
 How to start OS-install - quick
 -----------------------------------
 
-You need at least Erlang version 20! Recommended OS is Ubuntu 18.04.
+You need at least Erlang version 25! Recommended OS is Ubuntu 24.04.
 
 ```bash
 sudo apt install erlang-nox erlang-dev build-essential

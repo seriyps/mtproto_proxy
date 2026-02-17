@@ -33,7 +33,7 @@ connect(Host, Port, Secret, DcId, Protocol) ->
 -spec connect(inet:socket_address() | inet:hostname(),
               inet:port_number(),
               binary(), binary(), integer(),
-              mtp_codec:packet_codec() | {mtp_fake_tls, binary()}) -> client().
+              mtp_codec:packet_codec() | {mtp_fake_tls, binary()} | {mtp_fake_tls, binary(), pos_integer()}) -> client().
 connect(Host, Port, Seed, Secret, DcId, Protocol0) ->
     Opts = [{packet, raw},
             {mode, binary},
@@ -45,6 +45,14 @@ connect(Host, Port, Seed, Secret, DcId, Protocol0) ->
         case Protocol0 of
             {mtp_fake_tls, Domain} ->
                 ClientHello = mtp_fake_tls:make_client_hello(Secret, Domain),
+                ok = gen_tcp:send(Sock, ClientHello),
+                %% Let's hope whole server hello will arrive in a single chunk
+                {ok, ServerHello} = gen_tcp:recv(Sock, 0, 5000),
+                %% TODO: if Tail is not empty, use codec:push_back(first, ..)
+                {_HS, _CC, _D, <<>>} = mtp_fake_tls:parse_server_hello(ServerHello),
+                {mtp_secure, true, mtp_fake_tls:new()};
+            {mtp_fake_tls, Domain, TlsPacketLen} ->
+                ClientHello = mtp_fake_tls:make_client_hello(Secret, Domain, TlsPacketLen),
                 ok = gen_tcp:send(Sock, ClientHello),
                 %% Let's hope whole server hello will arrive in a single chunk
                 {ok, ServerHello} = gen_tcp:recv(Sock, 0, 5000),

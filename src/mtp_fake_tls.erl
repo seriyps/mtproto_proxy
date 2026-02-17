@@ -20,7 +20,9 @@
          encode_packet/2]).
 -ifdef(TEST).
 -export([make_client_hello/2,
+         make_client_hello/3,
          make_client_hello/4,
+         make_client_hello/5,
          parse_server_hello/1]).
 -endif.
 
@@ -135,15 +137,15 @@ from_client_hello(Data, Secret) ->
     {ok, Response, Meta, new()}.
 
 
-parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, 512:?u16, %Frame
-                     ?TLS_TAG_CLI_HELLO, 508:?u24, ?TLS_12_VERSION,
+parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, TlsFrameLen:?u16, %Frame
+                     ?TLS_TAG_CLI_HELLO, HelloLen:?u24, ?TLS_12_VERSION,
                      Random:?DIGEST_LEN/binary,
                      SessIdLen, SessId:SessIdLen/binary,
                      CipherSuitesLen:?u16, CipherSuites:CipherSuitesLen/binary,
                      CompMethodsLen, CompMethods:CompMethodsLen/binary,
                      ExtensionsLen:?u16, Extensions:ExtensionsLen/binary>>
                      %% _/binary>>
-                  ) ->
+                  ) when TlsFrameLen >= 512, HelloLen >= 508 ->
     #client_hello{
        pseudorandom = Random,
        session_id = SessId,
@@ -243,10 +245,24 @@ make_client_hello(Secret, SniDomain) ->
                       crypto:strong_rand_bytes(32),
                       Secret, SniDomain).
 
+%% Generate Fake-TLS "ClientHello" with custom TLS packet length. Used for tests only.
+make_client_hello(Secret, SniDomain, TlsPacketLen) ->
+    make_client_hello(erlang:system_time(second),
+                      crypto:strong_rand_bytes(32),
+                      Secret, SniDomain, TlsPacketLen).
+
 make_client_hello(Timestamp, SessionId, HexSecret, SniDomain) when byte_size(HexSecret) == 32 ->
     make_client_hello(Timestamp, SessionId, mtp_handler:unhex(HexSecret), SniDomain);
 make_client_hello(Timestamp, SessionId, Secret, SniDomain) when byte_size(SessionId) == 32,
                                                                 byte_size(Secret) == 16 ->
+    make_client_hello(Timestamp, SessionId, Secret, SniDomain, 512).
+
+%% @doc Generate ClientHello with custom TLS packet length (for testing variable-length support)
+make_client_hello(Timestamp, SessionId, HexSecret, SniDomain, TlsPacketLen) when byte_size(HexSecret) == 32 ->
+    make_client_hello(Timestamp, SessionId, mtp_handler:unhex(HexSecret), SniDomain, TlsPacketLen);
+make_client_hello(Timestamp, SessionId, Secret, SniDomain, TlsPacketLen) when byte_size(SessionId) == 32,
+                                                                               byte_size(Secret) == 16,
+                                                                               TlsPacketLen >= 512 ->
     %% Wireshark capture from Telegram Desktop
     CipherSuites =
         mtp_handler:unhex(<<"eaea130113021303c02bc02fc02cc030cca9cca8c013c014009c009d002f0035000a">>),
@@ -259,15 +275,21 @@ make_client_hello(Timestamp, SessionId, Secret, SniDomain) when byte_size(Sessio
           <<"0033002b00295a5a000100001d0020a4146c3e8573565bb5f5c877a88a98dcbbd46a9b3ca1ab3df7217cc33b4b6d2c">>),
     SupportedVersions =
         mtp_handler:unhex(<<"002b000b0a1a1a0304030303020301">>),
-    ExtLen = 401,                               % From wireshark
+    %% Calculate extensions length based on desired TLS packet length
+    %% TLS Frame = Type(1) + Version(2) + Length(2) + Payload
+    %% Payload = Hello(1) + HelloLen(3) + Version(2) + Random(32) + SessIdLen(1) + SessId
+    %%         + CSLen(2) + CS + CompMethodsLen(1) + CompMethods(1) + ExtLen(2) + Extensions
+    %% TlsPacketLen = Payload size (everything after the Length field)
+    HelloLen = TlsPacketLen - 4,  % Subtract Hello(1) + HelloLen(3) = 4
+    ExtLen = TlsPacketLen - (1 + 3 + 2 + 32 + 1 + byte_size(SessionId) + 2 + CSLen + 1 + 1 + 2),
     RealExtensions = <<KeyShare/binary, SupportedVersions/binary, SNI/binary>>,
     Extensions = add_padding_ext(RealExtensions, ExtLen),
-    (ExtLen == byte_size(Extensions)) orelse error({bad_ext_len, byte_size(Extensions)}),
+    (ExtLen == byte_size(Extensions)) orelse error({bad_ext_len, byte_size(Extensions), ExtLen}),
 
     SessIdLen = byte_size(SessionId),
     Pack = fun(FakeRandom) ->
-                   <<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, 512:?u16,
-                     ?TLS_TAG_CLI_HELLO, 508:?u24, ?TLS_12_VERSION,
+                   <<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, TlsPacketLen:?u16,
+                     ?TLS_TAG_CLI_HELLO, HelloLen:?u24, ?TLS_12_VERSION,
                      FakeRandom:?DIGEST_LEN/binary,
                      SessIdLen, SessionId:SessIdLen/binary,
                      CSLen:?u16, CipherSuites:CSLen/binary,
