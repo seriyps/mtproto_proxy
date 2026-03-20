@@ -270,8 +270,9 @@ http_get(Url) ->
     UserAgent = ("MTProtoProxy/" ++ Vsn ++ " OTP-" ++ OtpVersion ++
                      " (+https://github.com/seriyps/mtproto_proxy)"),
     Headers = [{"User-Agent", UserAgent}],
+    Timeout = application:get_env(mtproto_proxy, core_api_http_timeout_ms, 3000),
     {ok, {{_, 200, _}, _, Body}} =
-        httpc:request(get, {Url, Headers}, [{timeout, 3000}], ?OPTS),
+        httpc:request(get, {Url, Headers}, [{timeout, Timeout}], ?OPTS),
     {ok, Body}.
 
 random_choice(L) ->

@@ -119,7 +119,7 @@
            %% Remove items used for the last time more than `max_age_minutes`
            %% minutes ago.
            %% Less than 10 minutes doesn't make much sense
-           max_age_minutes => 360}}
+           max_age_minutes => 360}},
 
         %% Should be module with function `notify/4' exported.
         %% See mtp_metric:notify/4 for details
@@ -138,6 +138,8 @@
         %% Mostly used to testing
         %% {proxy_secret_url, "https://core.telegram.org/getProxySecret"},
         %% {proxy_config_url, "https://core.telegram.org/getProxyConfig"},
+        %% HTTP timeout (ms) for fetching proxy config/secret
+        {core_api_http_timeout_ms, 3000}
 
         %% Upstream self-healthchecks tuning
         %% {upstream_healthchecks,
