@@ -368,27 +368,54 @@ The proxy connects to whatever domain the client presented in the SNI field, on 
 No additional configuration is needed.
 
 **Pros:** zero config; works with any domain automatically.
-**Cons:** can be used to relay arbitrary HTTPS traffic through your server. If this is a
-concern, add policy rules to restrict which SNI domains are accepted — the same
-`in_table` / `not_in_table` rules used for normal connection policies apply here too
-(connections with disallowed SNI are closed rather than fronted):
+**Cons:** can be used to relay arbitrary HTTPS traffic through your server.
+
+> **⚠️ Loop risk:** if a client presents an SNI domain that resolves to the proxy's own IP,
+> the proxy will connect back to itself and loop indefinitely, exhausting file descriptors.
+> Use `sni` mode together with policy rules (see below) or switch to the `"host:port"` mode,
+> which is not affected by this issue.
+
+You can optionally restrict which SNI domains get fronted using the same `in_table` /
+`not_in_table` policy rules as normal connections. Two common approaches:
+
+**Domain whitelist** — only front explicitly allowed domains (safest):
 
 ```erlang
 {mtproto_proxy,
  [
   {domain_fronting, sni},
   {policy,
-   [{not_in_table, tls_domain, front_blacklist}]},
+   [{in_table, tls_domain, front_allowlist}]},
   {ports,
    [#{name => mtp_handler_1,
       ...
 ```
 
-Add domains to the blacklist at runtime:
+Add domains to the whitelist at runtime:
 
 ```bash
 /opt/mtp_proxy/bin/mtp_proxy eval '
-mtp_policy_table:add(front_blacklist, tls_domain, "unwanted.example.com").'
+mtp_policy_table:add(front_allowlist, tls_domain, "my-website.com").'
+```
+
+**IP blacklist** — block the proxy's own public IP to prevent loops:
+
+```erlang
+{mtproto_proxy,
+ [
+  {domain_fronting, sni},
+  {policy,
+   [{not_in_table, client_ipv4, ip_blacklist}]},
+  {ports,
+   [#{name => mtp_handler_1,
+      ...
+```
+
+```bash
+# The proxy auto-detects its external IP; add it to the blacklist once on startup:
+/opt/mtp_proxy/bin/mtp_proxy eval '
+{ok, Ip} = application:get_env(mtproto_proxy, external_ip),
+mtp_policy_table:add(ip_blacklist, client_ipv4, Ip).'
 ```
 
 #### b. Forward to a fixed third-party host

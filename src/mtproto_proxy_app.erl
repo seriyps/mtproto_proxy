@@ -33,8 +33,8 @@
 start(_StartType, _StartArgs) ->
     Res = {ok, _} = mtproto_proxy_sup:start_link(),
     report("+++++++++++++++++++++++++++++++++++++++~n"
-           "Erlang MTProto proxy by @seriyps https://github.com/seriyps/mtproto_proxy~n"
-           "Sponsored by and powers @socksy_bot~n", []),
+           "🇺🇦 Stand with Ukraine! Glory to the heroes! 🇺🇦~n"
+           "Erlang MTProto proxy by @seriyps https://github.com/seriyps/mtproto_proxy~n", []),
     [start_proxy(Where) || Where <- application:get_env(?APP, ports, [])],
     Res.
 
