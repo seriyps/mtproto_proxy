@@ -19,3 +19,4 @@ rebar3.crashdump
 *~
 config/prod*
 .run
+/.agent-shell/

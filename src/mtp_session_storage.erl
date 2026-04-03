@@ -16,6 +16,7 @@
 %% API
 -export([start_link/0,
          check_add/1,
+         check_add_tls/1,
          status/0]).
 
 %% gen_server callbacks
@@ -48,6 +49,25 @@ start_link() ->
 check_add(Packet) when byte_size(Packet) == 64 ->
     Now = erlang:system_time(second),
     check_add_at(Packet, Now).
+
+%% @doc Like check_add/1 but keyed on the 32-byte TLS ClientHello pseudorandom (client_random).
+%% Used for FakeTLS replay detection at the ClientHello stage, before ServerHello is sent.
+-spec check_add_tls(binary()) -> new | used.
+check_add_tls(ClientDigest) when byte_size(ClientDigest) == 32 ->
+    Now = erlang:system_time(second),
+    check_add_tls_at(ClientDigest, Now).
+
+check_add_tls_at(ClientDigest, Now) ->
+    Record = {ClientDigest, Now},
+    HistogramBucket = bucket(Now),
+    ets:update_counter(?HISTOGRAM_TAB, HistogramBucket, 1, {HistogramBucket, 0}),
+    case ets:insert_new(?DATA_TAB, Record) of
+        true ->
+            new;
+        false ->
+            ets:insert(?DATA_TAB, Record),
+            used
+    end.
 
 check_add_at(Packet, Now) ->
     Record = {fingerprint(Packet), Now},

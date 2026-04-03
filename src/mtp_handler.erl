@@ -55,10 +55,12 @@
          timer_state = init :: init | hibernate | stop,
          timer :: gen_timeout:tout(),
          last_queue_check :: integer(),
-         srv_error_filter :: first | on | off}).
+         srv_error_filter :: first | on | off,
+         front_sock = undefined :: gen_tcp:socket() | undefined,
+         hello_acc = <<>> :: binary()}).
 
 -type transport() :: module().
--type stage() :: init | tls_hello | tunnel.
+-type stage() :: init | tls_hello | tunnel | fronting.
 
 
 %% APIs
@@ -176,22 +178,53 @@ handle_cast(Other, State) ->
     ?LOG_WARNING("Unexpected msg ~p", [Other]),
     {noreply, State}.
 
-handle_info({tcp, Sock, Data}, #state{sock = Sock, transport = Transport,
-                                      listener = Listener, addr = {Ip, _}} = S) ->
-    %% client -> proxy
+handle_info({tcp, Sock, Data}, #state{sock = Sock, stage = Stage, transport = Transport,
+                                      listener = Listener, addr = {Ip, _}} = S)
+  when Stage =/= fronting ->
+    %% client -> proxy (tunnel / handshake stages)
     Size = byte_size(Data),
     mtp_metric:count_inc([?APP, received, upstream, bytes], Size, #{labels => [Listener]}),
     mtp_metric:histogram_observe([?APP, tracker_packet_size, bytes], Size, #{labels => [upstream]}),
-    try handle_upstream_data(Data, S) of
-        {ok, S1} ->
+    %% Accumulate raw bytes before processing so that attempt_fronting has the full buffer
+    %% even when the ClientHello or TLS Application Data arrived in multiple fragments.
+    %% Skipped for tunnel stage (hot path) since fronting can never trigger there.
+    S1 = case Stage of
+             tunnel -> S;
+             _ -> S#state{hello_acc = <<(S#state.hello_acc)/binary, Data/binary>>}
+         end,
+    try handle_upstream_data(Data, S1) of
+        {ok, S2} ->
             ok = Transport:setopts(Sock, [{active, once}]),
             %% Consider checking health here as well
-            {noreply, bump_timer(S1)}
+            {noreply, bump_timer(S2)}
     catch error:{protocol_error, Type, Extra} ->
             mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Listener, Type]}),
             ?LOG_WARNING("~s: protocol_error ~p ~p", [inet:ntoa(Ip), Type, Extra]),
-            {stop, normal, maybe_close_down(S)}
+            case attempt_fronting(Type, Extra, S1) of
+                {ok, S2} ->
+                    {noreply, bump_timer(S2)};
+                skip ->
+                    {stop, normal, maybe_close_down(S)}
+            end
     end;
+%% fronting stage: data from client -> relay to front
+handle_info({tcp, Sock, Data}, #state{sock = Sock, stage = fronting,
+                                      front_sock = FrontSock, transport = Transport} = S) ->
+    ok = gen_tcp:send(FrontSock, Data),
+    ok = Transport:setopts(Sock, [{active, once}]),
+    {noreply, bump_timer(S)};
+%% fronting stage: data from front -> relay to client
+handle_info({tcp, FrontSock, Data}, #state{front_sock = FrontSock, stage = fronting,
+                                           sock = Sock, transport = Transport} = S) ->
+    ok = Transport:send(Sock, Data),
+    ok = inet:setopts(FrontSock, [{active, once}]),
+    {noreply, bump_timer(S)};
+handle_info({tcp_closed, FrontSock}, #state{front_sock = FrontSock, stage = fronting} = S) ->
+    ?LOG_DEBUG("front sock closed"),
+    {stop, normal, S};
+handle_info({tcp_error, FrontSock, Reason}, #state{front_sock = FrontSock, stage = fronting} = S) ->
+    ?LOG_WARNING("front sock error: ~p", [Reason]),
+    {stop, normal, S};
 handle_info({tcp_closed, Sock}, #state{sock = Sock} = S) ->
     ?LOG_DEBUG("upstream sock closed"),
     {stop, normal, maybe_close_down(S)};
@@ -219,7 +252,8 @@ handle_info(Other, S) ->
 
 terminate(_Reason, #state{started_at = Started, listener = Listener,
                           addr = {Ip, _}, policy_state = PolicyState,
-                          sock = Sock, transport = Trans} = S) ->
+                          sock = Sock, transport = Trans,
+                          front_sock = FrontSock} = S) ->
     case PolicyState of
         {ok, TlsDomain} ->
             try mtp_policy:dec(
@@ -234,6 +268,10 @@ terminate(_Reason, #state{started_at = Started, listener = Listener,
     end,
     maybe_close_down(S),
     ok = Trans:close(Sock),
+    case FrontSock of
+        undefined -> ok;
+        _ -> gen_tcp:close(FrontSock)
+    end,
     mtp_metric:count_inc([?APP, in_connection_closed, total], 1, #{labels => [Listener]}),
     Lifetime = erlang:system_time(millisecond) - Started,
     mtp_metric:histogram_observe(
@@ -324,6 +362,7 @@ parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
             assert_protocol(mtp_fake_tls),
             <<Data:FullPacketSize/binary, Tail/binary>> = AllData,
             {ok, Response, Meta, TlsCodec} = mtp_fake_tls:from_client_hello(Data, Secret),
+            maybe_check_replay_tls(Meta),
             check_tls_policy(Listener, Ip, Meta),
             Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
             Codec = mtp_codec:push_back(tls, Tail, Codec1),
@@ -331,8 +370,10 @@ parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
             {ok, S#state{codec = Codec, stage = init,
                          policy_state = {ok, maps:get(sni_domain, Meta, undefined)}}};
         false ->
-            %% Wait for more data
-            {incomplete, S}
+            %% Received only part of the ClientHello — push it back into the codec
+            %% buffer so the next TCP fragment is reassembled with it before we try again.
+            Codec1 = mtp_codec:push_back(first, AllData, Codec0),
+            {incomplete, S#state{codec = Codec1, stage = tls_hello}}
     end;
 parse_upstream_data(<<?TLS_START, _/binary>> = Data, #state{stage = init} = S) ->
     parse_upstream_data(Data, S#state{stage = tls_hello});
@@ -348,12 +389,13 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
         error({protocol_error, tls_client_hello_expected, Header}),
     case mtp_obfuscated:from_header(Header, Secret) of
         {ok, DcId, PacketLayerMod, CryptoCodecSt} ->
-            maybe_check_replay(Header),
             {ProtoToReport, PState} =
                 case TlsHandshakeDone of
                     true when PacketLayerMod == mtp_secure ->
+                        %% Replay was already checked at the ClientHello stage; skip here.
                         {mtp_secure_fake_tls, PState0};
                     false ->
+                        maybe_check_replay(Header),
                         assert_protocol(PacketLayerMod, AllowedProtocols),
                         check_policy(Listener, Ip, undefined),
                         %FIXME: if any codebelow fail, we will get counter policy leak
@@ -428,6 +470,86 @@ check_policy(Listener, Ip, Domain) ->
         [] -> ok;
         [Rule | _] ->
             error({protocol_error, policy_error, {Rule, Listener, Ip, Domain}})
+    end.
+
+%% Like check_policy/3 but skips max_connections rules — fronted connections do not consume
+%% Telegram resources and must not count against connection limits.
+check_front_policy(Listener, Ip, Domain) ->
+    AllRules = application:get_env(?APP, policy, []),
+    Rules = [R || R <- AllRules, element(1, R) =/= max_connections],
+    case mtp_policy:check(Rules, Listener, Ip, Domain) of
+        [] -> ok;
+        [Rule | _] ->
+            error({protocol_error, policy_error, {Rule, Listener, Ip, Domain}})
+    end.
+
+%% Attempt to initiate domain fronting for the given protocol error type.
+%% Returns {ok, NewState} if fronting was initiated, skip otherwise.
+%% State#state.hello_acc contains the full raw byte stream accumulated so far.
+attempt_fronting(tls_invalid_digest, _Extra,
+                 #state{hello_acc = Acc, addr = {Ip, _}, listener = Listener} = S) ->
+    case application:get_env(?APP, domain_fronting, off) of
+        off -> skip;
+        Config ->
+            case mtp_fake_tls:parse_sni(Acc) of
+                {ok, SniDomain} ->
+                    do_front(SniDomain, Config, Acc, Ip, Listener, S);
+                {error, Reason} ->
+                    ?LOG_DEBUG("Domain fronting: no SNI (~p), closing", [Reason]),
+                    skip
+            end
+    end;
+attempt_fronting(replay_session_detected, SniDomain,
+                 #state{hello_acc = Acc, addr = {Ip, _}, listener = Listener} = S)
+  when is_binary(SniDomain) ->
+    %% Replay detected at ClientHello level (before ServerHello was sent).
+    %% hello_acc = raw ClientHello bytes → forward to fronting host which responds with
+    %% a real ServerHello — transparent forward, no TLS breakage.
+    case application:get_env(?APP, domain_fronting, off) of
+        off -> skip;
+        Config ->
+            do_front(SniDomain, Config, Acc, Ip, Listener, S)
+    end;
+attempt_fronting(_Type, _Extra, _S) ->
+    skip.
+
+maybe_check_replay_tls(#{client_digest := Digest} = Meta) ->
+    case application:get_env(?APP, replay_check_session_storage, off) of
+        on ->
+            (new == mtp_session_storage:check_add_tls(Digest)) orelse
+                error({protocol_error, replay_session_detected,
+                       maps:get(sni_domain, Meta, undefined)});
+        off ->
+            ok
+    end.
+
+do_front(SniDomain, Config, Data, Ip, Listener,
+         #state{sock = Sock, transport = Transport} = S) ->
+    try
+        check_front_policy(Listener, Ip, SniDomain),
+        {Host, Port} = fronting_target(Config, SniDomain),
+        TimeoutMs = application:get_env(?APP, domain_fronting_timeout_sec, 10) * 1000,
+        case gen_tcp:connect(Host, Port, [binary, {active, once}], TimeoutMs) of
+            {ok, FrontSock} ->
+                ok = gen_tcp:send(FrontSock, Data),
+                ok = Transport:setopts(Sock, [{active, once}]),
+                ?LOG_INFO("Domain fronting to ~s:~p for SNI ~s", [Host, Port, SniDomain]),
+                {ok, S#state{stage = fronting, front_sock = FrontSock}};
+            {error, Reason} ->
+                ?LOG_WARNING("Domain fronting connect to ~s:~p failed: ~p",
+                             [Host, Port, Reason]),
+                skip
+        end
+    catch error:{protocol_error, policy_error, _} ->
+            skip
+    end.
+
+fronting_target(sni, SniDomain) ->
+    {binary_to_list(SniDomain), 443};
+fronting_target(HostPort, _SniDomain) when is_list(HostPort) ->
+    case string:split(HostPort, ":") of
+        [Host, PortStr] -> {Host, list_to_integer(PortStr)};
+        _ -> error({badarg, invalid_domain_fronting_config, HostPort})
     end.
 
 up_send(Packet, #state{stage = tunnel, codec = UpCodec} = S) ->

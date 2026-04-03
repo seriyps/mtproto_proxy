@@ -19,7 +19,12 @@
          policy_max_conns_case/1,
          policy_whitelist_case/1,
          replay_attack_case/1,
-         replay_attack_server_error_case/1
+         replay_attack_server_error_case/1,
+         domain_fronting_fixed_case/1,
+         domain_fronting_off_case/1,
+         domain_fronting_blacklist_case/1,
+         domain_fronting_fragmented_case/1,
+         domain_fronting_replay_case/1
         ]).
 
 -export([set_env/2,
@@ -520,7 +525,165 @@ policy_whitelist_case(Cfg) when is_list(Cfg) ->
             count, [?APP, protocol_error, total], [?FUNCTION_NAME, policy_error])),
     ok.
 
-%% Helpers
+%% @doc Domain fronting: wrong secret + fixed target -> connection forwarded to fronting host.
+%% The proxy should transparently relay the raw ClientHello to the configured target
+%% instead of closing the connection.
+domain_fronting_fixed_case({pre, Cfg}) ->
+    {ok, FrontLSock} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
+    {ok, FrontPort} = inet:port(FrontLSock),
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg),
+    Cfg2 = set_env([{domain_fronting, "127.0.0.1:" ++ integer_to_list(FrontPort)}], Cfg1),
+    [{front_lsock, FrontLSock} | Cfg2];
+domain_fronting_fixed_case({post, Cfg}) ->
+    stop_single(Cfg),
+    reset_env(Cfg),
+    gen_tcp:close(?config(front_lsock, Cfg));
+domain_fronting_fixed_case(Cfg) when is_list(Cfg) ->
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    FrontLSock = ?config(front_lsock, Cfg),
+    WrongSecret = crypto:strong_rand_bytes(16),
+    Domain = <<"example.com">>,
+    ClientHello = mtp_fake_tls:make_client_hello(WrongSecret, Domain),
+    {ok, Sock} = gen_tcp:connect(Host, Port, [binary, {active, false}], 2000),
+    ok = gen_tcp:send(Sock, ClientHello),
+    %% Proxy should connect to our fronting server and forward the ClientHello
+    {ok, FrontSock} = gen_tcp:accept(FrontLSock, 5000),
+    {ok, Received} = gen_tcp:recv(FrontSock, byte_size(ClientHello), 5000),
+    ?assertEqual(ClientHello, Received),
+    %% Relay works both ways: send data from front -> client
+    FrontReply = <<"HTTP/1.1 200 OK\r\n\r\n">>,
+    ok = gen_tcp:send(FrontSock, FrontReply),
+    {ok, ClientReceived} = gen_tcp:recv(Sock, byte_size(FrontReply), 5000),
+    ?assertEqual(FrontReply, ClientReceived),
+    gen_tcp:close(FrontSock),
+    gen_tcp:close(Sock).
+
+%% @doc Domain fronting disabled (off): wrong secret -> connection is closed, not forwarded.
+domain_fronting_off_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
+domain_fronting_off_case({post, Cfg}) ->
+    stop_single(Cfg);
+domain_fronting_off_case(Cfg) when is_list(Cfg) ->
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    WrongSecret = crypto:strong_rand_bytes(16),
+    Domain = <<"example.com">>,
+    ClientHello = mtp_fake_tls:make_client_hello(WrongSecret, Domain),
+    {ok, Sock} = gen_tcp:connect(Host, Port, [binary, {active, false}], 2000),
+    ok = gen_tcp:send(Sock, ClientHello),
+    %% Proxy must close the connection (fronting is off)
+    ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0, 5000)),
+    gen_tcp:close(Sock).
+
+%% @doc Domain fronting with blacklisted SNI: connection must be closed, not forwarded.
+domain_fronting_blacklist_case({pre, Cfg}) ->
+    {ok, FrontLSock} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
+    {ok, FrontPort} = inet:port(FrontLSock),
+    BlacklistedDomain = <<"blocked.example.com">>,
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg),
+    ok = mtp_policy_table:add(df_blacklist, tls_domain, BlacklistedDomain),
+    Cfg2 = set_env([{domain_fronting, "127.0.0.1:" ++ integer_to_list(FrontPort)},
+                    {policy, [{not_in_table, tls_domain, df_blacklist}]}], Cfg1),
+    [{front_lsock, FrontLSock}, {blacklisted_domain, BlacklistedDomain} | Cfg2];
+domain_fronting_blacklist_case({post, Cfg}) ->
+    stop_single(Cfg),
+    reset_env(Cfg),
+    gen_tcp:close(?config(front_lsock, Cfg));
+domain_fronting_blacklist_case(Cfg) when is_list(Cfg) ->
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    FrontLSock = ?config(front_lsock, Cfg),
+    BlacklistedDomain = ?config(blacklisted_domain, Cfg),
+    WrongSecret = crypto:strong_rand_bytes(16),
+    ClientHello = mtp_fake_tls:make_client_hello(WrongSecret, BlacklistedDomain),
+    {ok, Sock} = gen_tcp:connect(Host, Port, [binary, {active, false}], 2000),
+    ok = gen_tcp:send(Sock, ClientHello),
+    %% Proxy must close the connection (domain is blacklisted)
+    ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0, 5000)),
+    %% Fronting server must NOT have received a connection
+    ?assertEqual({error, timeout}, gen_tcp:accept(FrontLSock, 500)),
+    gen_tcp:close(Sock).
+
+%% @doc Domain fronting with fragmented ClientHello: proxy must still extract SNI and forward.
+%% ClientHello is split into two sends to simulate fragmented TCP delivery.
+domain_fronting_fragmented_case({pre, Cfg}) ->
+    {ok, FrontLSock} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
+    {ok, FrontPort} = inet:port(FrontLSock),
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg),
+    Cfg2 = set_env([{domain_fronting, "127.0.0.1:" ++ integer_to_list(FrontPort)}], Cfg1),
+    [{front_lsock, FrontLSock} | Cfg2];
+domain_fronting_fragmented_case({post, Cfg}) ->
+    stop_single(Cfg),
+    reset_env(Cfg),
+    gen_tcp:close(?config(front_lsock, Cfg));
+domain_fronting_fragmented_case(Cfg) when is_list(Cfg) ->
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    FrontLSock = ?config(front_lsock, Cfg),
+    WrongSecret = crypto:strong_rand_bytes(16),
+    Domain = <<"example.com">>,
+    ClientHello = mtp_fake_tls:make_client_hello(WrongSecret, Domain),
+    %% Split at byte 10 (middle of TLS record header) to simulate TCP fragmentation.
+    %% {nodelay, true} disables Nagle's algorithm so each send() produces a distinct segment.
+    SplitAt = 10,
+    <<Part1:SplitAt/binary, Part2/binary>> = ClientHello,
+    {ok, Sock} = gen_tcp:connect(Host, Port, [binary, {active, false}, {nodelay, true}], 2000),
+    ok = gen_tcp:send(Sock, Part1),
+    timer:sleep(50),
+    ok = gen_tcp:send(Sock, Part2),
+    %% Proxy must reassemble and still front us
+    {ok, FrontSock} = gen_tcp:accept(FrontLSock, 5000),
+    {ok, Received} = gen_tcp:recv(FrontSock, byte_size(ClientHello), 5000),
+    ?assertEqual(ClientHello, Received),
+    gen_tcp:close(FrontSock),
+    gen_tcp:close(Sock).
+
+%% @doc Replay attack: same TLS seed used twice -> replay_session_detected -> domain fronting.
+%% The fronting server should receive a connection whose data starts with a TLS record.
+domain_fronting_replay_case({pre, Cfg}) ->
+    {ok, FrontLSock} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
+    {ok, FrontPort} = inet:port(FrontLSock),
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg),
+    Cfg2 = set_env([{domain_fronting, "127.0.0.1:" ++ integer_to_list(FrontPort)}], Cfg1),
+    [{front_lsock, FrontLSock} | Cfg2];
+domain_fronting_replay_case({post, Cfg}) ->
+    stop_single(Cfg),
+    reset_env(Cfg),
+    gen_tcp:close(?config(front_lsock, Cfg));
+domain_fronting_replay_case(Cfg) when is_list(Cfg) ->
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    FrontLSock = ?config(front_lsock, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    Domain = <<"example.com">>,
+    %% Build a deterministic ClientHello so we can replay it byte-for-byte
+    Timestamp = erlang:system_time(second),
+    SessionId = crypto:strong_rand_bytes(32),
+    ClientHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, Secret, Domain),
+    %% First connection: ClientHello digest not yet in storage → stored, ServerHello sent
+    {ok, Sock1} = gen_tcp:connect(Host, Port, [binary, {active, false}], 2000),
+    ok = gen_tcp:send(Sock1, ClientHello),
+    {ok, _ServerHello} = gen_tcp:recv(Sock1, 0, 3000),
+    gen_tcp:close(Sock1),
+    timer:sleep(50),
+    %% Second connection: same ClientHello → replay_session_detected fires BEFORE ServerHello.
+    %% Send it fragmented with {nodelay, true} to cover the fragmentation+replay path.
+    SplitAt = 10,
+    <<Part1:SplitAt/binary, Part2/binary>> = ClientHello,
+    {ok, Sock2} = gen_tcp:connect(Host, Port, [binary, {active, false}, {nodelay, true}], 2000),
+    ok = gen_tcp:send(Sock2, Part1),
+    timer:sleep(50),
+    ok = gen_tcp:send(Sock2, Part2),
+    %% Fronting server must accept — proxy forwards the ClientHello without sending a ServerHello
+    {ok, FrontSock} = gen_tcp:accept(FrontLSock, 5000),
+    {ok, Data} = gen_tcp:recv(FrontSock, 0, 5000),
+    %% Data forwarded is the raw TLS ClientHello (0x16 = TLS handshake record)
+    ?assertMatch(<<16#16, _/binary>>, Data),
+    %% Proxy must NOT have sent a ServerHello to the client
+    ?assertEqual({error, timeout}, gen_tcp:recv(Sock2, 0, 200)),
+    gen_tcp:close(FrontSock),
+    gen_tcp:close(Sock2).
 
 setup_single(Name, MtpPort, DcCfg0, Cfg) ->
     setup_single(Name, "127.0.0.1", MtpPort, DcCfg0, Cfg).

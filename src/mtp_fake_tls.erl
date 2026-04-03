@@ -14,6 +14,7 @@
 -export([format_secret_base64/2,
          format_secret_hex/2]).
 -export([from_client_hello/2,
+         parse_sni/1,
          new/0,
          try_decode_packet/2,
          decode_all/2,
@@ -78,6 +79,7 @@
 
 -type meta() :: #{session_id := binary(),
                   timestamp := non_neg_integer(),
+                  client_digest := binary(),
                   sni_domain => binary()}.
 
 
@@ -127,7 +129,8 @@ from_client_hello(Data, Secret) ->
                 CC,
                 DD],
     Meta0 = #{session_id => SessionId,
-              timestamp => Timestamp},
+              timestamp => Timestamp,
+              client_digest => ClientDigest},
     Meta = case lists:keyfind(?EXT_SNI, 1, Extensions) of
                {_, [{?EXT_SNI_HOST_NAME, Domain}]} ->
                        Meta0#{sni_domain => Domain};
@@ -135,6 +138,26 @@ from_client_hello(Data, Secret) ->
                    Meta0
            end,
     {ok, Response, Meta, new()}.
+
+%% Extract the SNI domain from a raw ClientHello binary without validating the secret.
+%% Used for domain fronting: call this when from_client_hello/2 raises tls_invalid_digest,
+%% to determine where to forward the connection.
+%%
+%% Returns {ok, Domain :: binary()} or {error, no_sni | bad_hello}.
+-spec parse_sni(binary()) -> {ok, binary()} | {error, no_sni | bad_hello}.
+parse_sni(Data) ->
+    try
+        #client_hello{extensions = Extensions} = parse_client_hello(Data),
+        case lists:keyfind(?EXT_SNI, 1, Extensions) of
+            {_, [{?EXT_SNI_HOST_NAME, Domain}]} ->
+                {ok, Domain};
+            _ ->
+                {error, no_sni}
+        end
+    catch
+        error:_ ->
+            {error, bad_hello}
+    end.
 
 
 parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, TlsFrameLen:?u16, %Frame

@@ -29,6 +29,9 @@ Features
 * Supports multiplexing (Many connections Client -> Proxy are wrapped to small amount of
   connections Proxy -> Telegram Server) - lower pings and better OS network utilization
 * Protection from [replay attacks](https://habr.com/ru/post/452144/) used to detect proxies in some countries
+* Domain fronting for fake-TLS connections — when a browser or DPI probe connects with a
+  wrong/absent secret, the connection is forwarded transparently to the real HTTPS server
+  in the SNI field; the proxy is indistinguishable from a normal web server
 * Automatic telegram configuration reload (no need for restarts once per day)
 * IPv6 for client connections
 * All configuration options can be updated without service restart
@@ -323,6 +326,167 @@ be list with only `mtp_fake_tls`.
      [#{name => mtp_handler_1,
       <..>
 ```
+
+For even stronger DPI resistance you can enable domain fronting — see
+[Domain fronting for fake-TLS](#domain-fronting-for-fake-tls).
+
+### Domain fronting for fake-TLS
+
+When `mtp_fake_tls` is the active protocol and an incoming TLS connection fails the MTProto
+handshake (wrong or absent secret — e.g. a real browser or a DPI probe), the proxy can
+**forward the raw TCP connection transparently** to the real HTTPS host instead of closing it.
+Replay-attack connections are also fronted: the replayed ClientHello is forwarded and the
+probe receives a genuine TLS certificate from the fronting host. In both cases the proxy
+is indistinguishable from a normal HTTPS server to any external observer.
+
+Two configuration keys control this feature:
+
+```erlang
+%% Values: off | sni | "host:port"
+{domain_fronting, off},
+
+%% TCP connect timeout to the fronting host (seconds).
+{domain_fronting_timeout_sec, 10},
+```
+
+The SNI domain extracted from the client's TLS ClientHello is always required (if absent,
+the connection is closed). It is used for policy checks in all modes and as the forwarding
+target in `sni` mode.
+
+#### a. Forward to the SNI host (simplest)
+
+```erlang
+{mtproto_proxy,
+ [
+  {domain_fronting, sni},
+  {ports,
+   [#{name => mtp_handler_1,
+      ...
+```
+
+The proxy connects to whatever domain the client presented in the SNI field, on port 443.
+No additional configuration is needed.
+
+**Pros:** zero config; works with any domain automatically.
+**Cons:** can be used to relay arbitrary HTTPS traffic through your server. If this is a
+concern, add policy rules to restrict which SNI domains are accepted — the same
+`in_table` / `not_in_table` rules used for normal connection policies apply here too
+(connections with disallowed SNI are closed rather than fronted):
+
+```erlang
+{mtproto_proxy,
+ [
+  {domain_fronting, sni},
+  {policy,
+   [{not_in_table, tls_domain, front_blacklist}]},
+  {ports,
+   [#{name => mtp_handler_1,
+      ...
+```
+
+Add domains to the blacklist at runtime:
+
+```bash
+/opt/mtp_proxy/bin/mtp_proxy eval '
+mtp_policy_table:add(front_blacklist, tls_domain, "unwanted.example.com").'
+```
+
+#### b. Forward to a fixed third-party host
+
+```erlang
+{mtproto_proxy,
+ [
+  {domain_fronting, "my-website.com:443"},
+  {ports,
+   [#{name => mtp_handler_1,
+      ...
+```
+
+All unrecognised TLS connections are forwarded to a single fixed target regardless of the
+SNI field. SNI is still extracted and checked against policy rules, but the TCP connection
+goes to the configured host.
+
+**Pros:** predictable destination; easy to lock down with a whitelist so only your own
+domains trigger fronting.
+**Cons:** requires knowing the target host in advance.
+
+Example with an SNI whitelist (only listed domains trigger fronting; all others are closed):
+
+```erlang
+{mtproto_proxy,
+ [
+  {domain_fronting, "my-website.com:443"},
+  {policy,
+   [{in_table, tls_domain, front_allowlist}]},
+  {ports,
+   [#{name => mtp_handler_1,
+      ...
+```
+
+Add allowed domains at runtime:
+
+```bash
+/opt/mtp_proxy/bin/mtp_proxy eval '
+mtp_policy_table:add(front_allowlist, tls_domain, "my-website.com").'
+```
+
+#### c. Forward to a local web server (Nginx on localhost:1443)
+
+The most production-ready setup: run a real web server on the same machine so the proxy
+port serves genuine HTTPS content for any browser that connects.
+
+**Step 1 — configure Nginx** to listen on `127.0.0.1:1443`:
+
+```nginx
+server {
+    listen 127.0.0.1:1443 ssl;
+    server_name my-website.com;
+
+    ssl_certificate     /etc/letsencrypt/live/my-website.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/my-website.com/privkey.pem;
+
+    location / {
+        root /var/www/html;
+        index index.html;
+    }
+}
+```
+
+**Step 2 — obtain a TLS certificate.**
+
+With [certbot](https://certbot.eff.org/) (Let's Encrypt, recommended — requires a real
+domain pointing to your server and port 80 open to the internet):
+
+```bash
+sudo apt install certbot
+sudo certbot certonly --standalone -d my-website.com
+```
+
+Or generate a self-signed certificate (works for any hostname, but browsers will show a
+warning — still enough to fool DPI):
+
+```bash
+openssl req -x509 -newkey rsa:4096 -keyout /etc/ssl/private/proxy-selfsigned.key \
+    -out /etc/ssl/certs/proxy-selfsigned.crt -days 3650 -nodes \
+    -subj "/CN=my-website.com"
+```
+
+Then reference those paths in the `ssl_certificate` / `ssl_certificate_key` lines above.
+
+**Step 3 — configure the proxy:**
+
+```erlang
+{mtproto_proxy,
+ [
+  {domain_fronting, "127.0.0.1:1443"},
+  {ports,
+   [#{name => mtp_handler_1,
+      ...
+```
+
+**Pros:** proxy port truly serves HTTPS; real certificates; ideal for servers that already
+run a website.
+**Cons:** requires a running web server and a TLS certificate.
 
 ### Connection limit policies
 

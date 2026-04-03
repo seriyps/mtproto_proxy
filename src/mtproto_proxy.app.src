@@ -119,7 +119,7 @@
            %% Remove items used for the last time more than `max_age_minutes`
            %% minutes ago.
            %% Less than 10 minutes doesn't make much sense
-           max_age_minutes => 360}}
+           max_age_minutes => 360}},
 
         %% Should be module with function `notify/4' exported.
         %% See mtp_metric:notify/4 for details
@@ -169,6 +169,32 @@
         %%    %% float >= 1
         %%    %% if not specified this check is skipped
         %%    packets_per_upstream => 3}}
+
+        %% Domain fronting: when a fake-TLS (base64 secret) handshake fails because the
+        %% secret does not match (wrong secret / real browser / DPI probe), forward the
+        %% raw TCP connection to the real TLS host instead of closing it. This makes the
+        %% proxy indistinguishable from a normal HTTPS server.
+        %%
+        %% Values:
+        %%   off          - disabled (default): close the connection as before
+        %%   sni          - forward to the SNI hostname from the ClientHello on port 443
+        %%   "host:port"  - always forward to this fixed host:port regardless of SNI
+        %%                  (e.g. "127.0.0.1:443" to forward to a local nginx/caddy)
+        %%
+        %% In all enabled modes the SNI field must be present in the ClientHello;
+        %% if it is absent the connection is closed.  In "host:port" mode the SNI
+        %% is still extracted for policy checks (blacklist / whitelist).
+        %%
+        %% Policy rules are applied to the SNI domain:
+        %%   blacklisted domain  -> close (no forwarding)
+        %%   not in whitelist    -> close (no forwarding)
+        %%   max_connections     -> ignored (fronted traffic is not Telegram traffic)
+        {domain_fronting, off},
+
+        %% Timeout in seconds for the TCP connect to the fronting host.
+        %% Default: 10
+        {domain_fronting_timeout_sec, 10}
+
        ]},
   {modules, []},
 

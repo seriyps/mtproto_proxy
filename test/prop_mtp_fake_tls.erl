@@ -3,7 +3,10 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--export([prop_codec_small/1, prop_codec_big/1, prop_stream/1, prop_variable_length_hello/1]).
+-export([prop_codec_small/1, prop_codec_big/1, prop_stream/1,
+         prop_variable_length_hello/1,
+         prop_parse_sni_valid/1,
+         prop_parse_sni_garbage/1]).
 
 prop_codec_small(doc) ->
     "Tests that any binary below 65535 bytes can be encoded and decoded back as single frame".
@@ -84,4 +87,40 @@ variable_length_hello(TlsPacketLen, Secret, Domain) ->
     ?assertEqual(SessionId, maps:get(session_id, Meta)),
     ?assertEqual(Timestamp, maps:get(timestamp, Meta)),
     ?assertEqual(Domain, maps:get(sni_domain, Meta)),
+    true.
+
+
+prop_parse_sni_valid(doc) ->
+    "parse_sni/1 returns {ok, Domain} for any valid ClientHello with SNI".
+
+prop_parse_sni_valid() ->
+    ?FORALL({TlsPacketLen, Secret, Domain},
+            {proper_types:integer(512, 4096),
+             proper_types:binary(16),
+             <<"example.com">>},
+            parse_sni_valid(TlsPacketLen, Secret, Domain)).
+
+parse_sni_valid(TlsPacketLen, Secret, Domain) ->
+    Timestamp = erlang:system_time(second),
+    SessionId = crypto:strong_rand_bytes(32),
+    %% Build a ClientHello with a WRONG secret so from_client_hello/2 would throw
+    WrongSecret = crypto:strong_rand_bytes(16),
+    ClientHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, WrongSecret, Domain, TlsPacketLen),
+    %% parse_sni/1 must still extract the domain regardless of the secret
+    ?assertEqual({ok, Domain}, mtp_fake_tls:parse_sni(ClientHello)),
+    %% Also works on a correctly-signed hello
+    ValidHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, Secret, Domain, TlsPacketLen),
+    ?assertEqual({ok, Domain}, mtp_fake_tls:parse_sni(ValidHello)),
+    true.
+
+
+prop_parse_sni_garbage(doc) ->
+    "parse_sni/1 returns {error, bad_hello} for arbitrary garbage binaries".
+
+prop_parse_sni_garbage() ->
+    ?FORALL(Bin, proper_types:binary(), parse_sni_garbage(Bin)).
+
+parse_sni_garbage(Bin) ->
+    Result = mtp_fake_tls:parse_sni(Bin),
+    ?assert(Result =:= {error, bad_hello} orelse Result =:= {error, no_sni}),
     true.
