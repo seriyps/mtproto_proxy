@@ -317,11 +317,11 @@ config_change_case({post, Cfg}) ->
     stop_single(Cfg);
 config_change_case(Cfg) when is_list(Cfg) ->
     %% test "max_connections"
-    MaxConnsBefore = [{Listener, proplists:get_value(max_connections, Opts)}
+    MaxConnsBefore = [{Listener, maps:get(max_connections, Opts)}
                       || {Listener, Opts} <- mtproto_proxy_app:mtp_listeners()],
     NewMaxConns = 10,
     ok = mtproto_proxy_app:config_change([{max_connections, NewMaxConns}], [], []),
-    MaxConnsAfter = [{Listener, proplists:get_value(max_connections, Opts)}
+    MaxConnsAfter = [{Listener, maps:get(max_connections, Opts)}
                      || {Listener, Opts} <- mtproto_proxy_app:mtp_listeners()],
     ?assertNotEqual(MaxConnsBefore, MaxConnsAfter),
     ?assert(lists:all(fun({_Listener, MaxConns}) ->

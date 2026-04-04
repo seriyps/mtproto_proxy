@@ -10,7 +10,7 @@
 -behaviour(ranch_protocol).
 
 %% API
--export([start_link/4, send/2]).
+-export([start_link/3, send/2]).
 -export([hex/1, unhex/1]).
 -export([keys_str/0]).
 
@@ -65,7 +65,7 @@
 
 %% APIs
 
-start_link(Ref, _Socket, Transport, Opts) ->
+start_link(Ref, Transport, Opts) ->
     {ok, proc_lib:spawn_link(?MODULE, ranch_init, [{Ref, Transport, Opts}])}.
 
 keys_str() ->

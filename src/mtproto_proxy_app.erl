@@ -94,21 +94,19 @@ diff_env(NewEnv, OldEnv) ->
 %% @doc List of ranch listeners running mtproto_proxy
 -spec mtp_listeners() -> [tuple()].
 mtp_listeners() ->
-    lists:filter(
-      fun({_Name, Opts}) ->
-              proplists:get_value(protocol, Opts) == mtp_handler
-      end,
-      ranch:info()).
+    maps:to_list(
+      maps:filter(
+        fun(_Name, #{protocol := Protocol}) ->
+                Protocol == mtp_handler
+        end,
+        ranch:info())).
 
 
 %% @doc Currently running listeners in a form of proxy_port()
 -spec running_ports() -> [proxy_port()].
 running_ports() ->
     lists:map(
-      fun({Name, Opts}) ->
-              #{protocol_options := ProtoOpts,
-                ip := Ip,
-                port := Port} = maps:from_list(Opts),
+      fun({Name, #{protocol_options := ProtoOpts, ip := Ip, port := Port}}) ->
               [Name, Secret, AdTag] = ProtoOpts,
               case inet:ntoa(Ip) of
                   {error, einval} ->

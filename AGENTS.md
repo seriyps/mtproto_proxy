@@ -79,6 +79,25 @@ Individual steps:
 
 Always run `make test` before committing. Fix all xref warnings and dialyzer errors — they are treated as errors.
 
+### Debugging CT failures
+
+When `rebar3 ct` (or `make test`) reports failures, **do not rely on the terminal output** — it is truncated and shows only the last error. Instead, go straight to the HTML logs:
+
+```
+_build/test/logs/ct_run.<timestamp>/lib.mtproto_proxy.logs/run.<timestamp>/
+```
+
+Key files:
+- `suite.log` — machine-readable summary; `=case` lines show test order, `=result failed` shows which failed
+- `single_dc_suite.<test_name>.html` — full log for one test case (strip HTML tags to read: `sed 's/<[^>]*>//g'`)
+- `suite.log.html` / `index.html` — human-readable in a browser
+
+Workflow:
+1. Run `make test` — note how many pass/fail
+2. Check `suite.log` for `=case` ordering and `=result failed` to identify the failing test
+3. Read that test's `.html` log for the full stacktrace and system reports
+4. Fix, then re-run `make test`. If tests still fail spuriously, try `rm -rf _build/test && make test` to clear stale test artifacts (removing only `_build/test` is faster than a full clean build).
+
 ## Code Style
 
 - Language: **Erlang**. Follow standard Erlang OTP conventions.

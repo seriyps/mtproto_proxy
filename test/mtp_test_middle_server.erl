@@ -6,7 +6,7 @@
 -export([start/2,
          stop/1,
          get_rpc_handler_state/1]).
--export([start_link/4,
+-export([start_link/3,
          ranch_init/1]).
 -export([init/1,
          callback_mode/0,
@@ -63,7 +63,7 @@ get_rpc_handler_state(Pid) ->
 
 %% Callbacks
 
-start_link(Ref, _, Transport, Opts) ->
+start_link(Ref, Transport, Opts) ->
     {ok, proc_lib:spawn_link(?MODULE, ranch_init, [{Ref, Transport, Opts}])}.
 
 ranch_init({Ref, Transport, Opts}) ->
