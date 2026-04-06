@@ -1,6 +1,6 @@
 # Based on https://github.com/erlang/docker-erlang-example
 
-FROM erlang:21-alpine as builder
+FROM erlang:27-alpine AS builder
 
 RUN apk add --no-cache git
 
@@ -15,12 +15,11 @@ COPY config config
 RUN if [ ! -f config/prod-sys.config ]; then cp config/sys.config.example config/prod-sys.config; fi
 RUN if [ ! -f config/prod-vm.args ]; then cp config/vm.args.example config/prod-vm.args; fi
 
-RUN rebar3 as prod release
+RUN ./rebar3 as prod release
 
-FROM alpine:3.9
-RUN apk add --no-cache openssl && \
-    apk add --no-cache ncurses-libs && \
-    apk add --no-cache dumb-init
+# Must match the Alpine version used by erlang:27-alpine to ensure ERTS ABI compatibility
+FROM alpine:3.22
+RUN apk add --no-cache openssl ncurses-libs dumb-init libstdc++
 
 RUN mkdir -p /opt /var/log/mtproto-proxy
 COPY start.sh /bin/start.sh
