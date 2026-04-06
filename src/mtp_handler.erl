@@ -427,7 +427,8 @@ parse_upstream_data(<<Header:64/binary, Rest/binary>>,
                         dc_id = {RealDcId, Pool},
                         codec = Codec,
                         policy_state = PState,
-                        stage = tunnel},
+                        stage = tunnel,
+                        hello_acc = <<>>},
                 hibernate));
         {error, Reason} when is_atom(Reason) ->
             mtp_metric:count_inc([?APP, protocol_error, total], 1, #{labels => [Listener, Reason]}),
@@ -538,7 +539,7 @@ do_front(SniDomain, Config, Data, Ip, Listener,
                 ok = gen_tcp:send(FrontSock, Data),
                 ok = Transport:setopts(Sock, [{active, once}]),
                 ?LOG_INFO("Domain fronting to ~s:~p for SNI ~s", [Host, Port, SniDomain]),
-                {ok, S#state{stage = fronting, front_sock = FrontSock}};
+                {ok, S#state{stage = fronting, front_sock = FrontSock, hello_acc = <<>>}};
             {error, Reason} ->
                 ?LOG_WARNING("Domain fronting connect to ~s:~p failed: ~p",
                              [Host, Port, Reason]),
