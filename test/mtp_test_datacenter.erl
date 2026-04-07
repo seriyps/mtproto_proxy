@@ -59,7 +59,7 @@ middle_connections(#{srv_ids := Ids}) ->
 %% Api
 start_config_server(Ip, Port, Secret, DcConfig, Acc) ->
     application:load(mtproto_proxy),
-    RootDir = code:lib_dir(mtproto_proxy, test),
+    RootDir = filename:join(code:lib_dir(mtproto_proxy), "test"),
     {ok, Pid} =
         inets:start(httpd,
                     [{port, Port},
