@@ -36,6 +36,66 @@ Dockerfile        Docker image build
 | `mtp_metric`                                     | Metrics/telemetry                                     |
 | `mtp_session_storage`                            | Replay-attack protection (session deduplication)      |
 
+### Process architecture
+
+```
+OTP supervision tree
+────────────────────────────────────────────────────────────────────
+mtproto_proxy_sup  (one_for_one)
+ ├── mtp_config            (gen_server, singleton)
+ ├── mtp_session_storage   (gen_server, singleton)
+ ├── mtp_dc_pool_sup       (supervisor, simple_one_for_one)
+ │    └── mtp_dc_pool      (gen_server, one per DC id, permanent)
+ ├── mtp_down_conn_sup     (supervisor, simple_one_for_one)
+ │    └── mtp_down_conn    (gen_server, one per Telegram TCP conn, temporary)
+ └── Ranch listeners       (one per configured port: mtp_ipv4, mtp_ipv6, …)
+      └── mtp_handler      (gen_server, one per client TCP conn, transient)
+
+
+Data-plane message flow  (one client connection)
+────────────────────────────────────────────────────────────────────
+
+  Telegram client                                  Telegram server
+       │                                                 │
+       │  TCP (fake-TLS / obfuscated / secure)           │
+       ▼                                                 ▼
+ ┌─────────────┐   gen_server:call({send,Data})   ┌──────────────┐   raw TCP     ┌──────────────┐
+ │ mtp_handler │ ──────────────────────────────►  │ mtp_down_conn│ ────────────► │  Telegram DC │
+ │  (upstream) │                                  │ (downstream) │ ◄──────────── │ (middle srv) │
+ │             │ ◄──────────────────────────────  │              │               └──────────────┘
+ └──────┬──────┘    gen_server:cast({proxy_ans})  └──────────────┘
+        │
+        │  on first data: mtp_config:get_downstream_safe/2 → picks (pool, down_conn)
+        │  on disconnect: cast({return, self()}) → releases slot
+        ▼
+ ┌─────────────┐
+ │ mtp_dc_pool │  — spawns mtp_down_conn via mtp_down_conn_sup when pool is empty
+ │  (per DC)   │
+ └─────────────┘
+
+> **Naming note:** the terms "upstream" and "downstream" in the current code are the
+> opposite of what one might expect:
+> `upstream` = the client-side connection (`mtp_handler`),
+> `downstream` = the Telegram-server-side connection (`mtp_down_conn`).
+> This will be renamed in a future refactor.
+
+
+Key interactions
+────────────────────────────────────────────────────────────────────
+mtp_handler  → mtp_config       : get_downstream_safe/2 — resolves DC id to
+                                  a (pool_pid, down_conn_pid) pair on first
+                                  upstream data packet
+mtp_handler  → mtp_down_conn    : send/2 (sync call) — forward client data
+mtp_down_conn → mtp_handler     : cast {proxy_ans, …} — forward Telegram reply
+mtp_down_conn → mtp_handler     : cast {close_ext, …} — Telegram closed stream
+mtp_handler  → mtp_dc_pool      : return/2 (cast) — release slot on disconnect
+mtp_dc_pool  → mtp_down_conn    : upstream_new/upstream_closed (cast)
+mtp_dc_pool  → mtp_down_conn_sup: start_conn/2 — spawn new TCP conn to Telegram
+mtp_down_conn → mtp_config      : get_netloc/1, get_secret/0 — read DC address
+                                  and proxy secret for RPC handshake
+mtp_config   → mtp_dc_pool_sup  : start_pool/1 — create pool when new DC seen
+```
+
 ## Build
 
 Requires Erlang/OTP 25+.
@@ -78,6 +138,32 @@ Individual steps:
 ```
 
 Always run `make test` before committing. Fix all xref warnings and dialyzer errors — they are treated as errors.
+
+### Test organisation — where to add new tests
+
+There are three kinds of tests, each with a clear home:
+
+| Kind | Files | When to add |
+|------|-------|-------------|
+| **EUnit** (unit) | `src/*.erl`, `-ifdef(TEST)` blocks | Pure functions with no I/O: codec encode/decode round-trips, packet parsing helpers, crypto primitives |
+| **PropEr** (property-based) | `test/prop_mtp_<module>.erl` | Codec/parser properties that should hold for *arbitrary* inputs — e.g. encode→decode identity, parser accepts all valid inputs, parser never crashes on random bytes |
+| **Common Test** (integration) | `test/single_dc_SUITE.erl` | End-to-end behaviour involving a real listener + fake DC: protocol negotiation, policy enforcement, error handling visible at the TCP level (alerts sent, connections closed), domain fronting, replay protection |
+
+**Rule of thumb:** if the behaviour is observable only over a TCP socket or requires a running application, it belongs in `single_dc_SUITE`. If it is a property of a pure function, add a PropEr property in the matching `prop_mtp_<module>.erl`. If it is a targeted unit case for a specific input, use EUnit.
+
+**What changes need new tests:**
+
+- **New codec or protocol module** → PropEr round-trip property in `prop_mtp_<module>.erl` + a CT `echo_*_case` in `single_dc_SUITE`
+- **New protocol error path** → CT case that sends the triggering byte sequence over TCP and asserts the exact response (alert bytes, metric counter, connection close)
+- **New policy or config option** → CT case that sets the env, exercises the path, resets env in `{post, Cfg}`
+- **New parser clause or binary pattern** → PropEr property verifying the clause accepts all valid inputs and a targeted EUnit/PropEr case for boundary/malformed inputs
+- **Security-critical paths** (replay detection, session storage, digest validation) → CT case; also consider PropEr for the pure crypto/comparison functions
+
+**Naming conventions:**
+
+- CT cases: `<description>_case/1` — auto-discovered by `all/0`
+- PropEr properties: `prop_<description>/0` (or `/1` with a `doc` clause)
+- Each CT case must implement `{pre, Cfg}` / `{post, Cfg}` / `Cfg when is_list(Cfg)` clauses and call `setup_single` / `stop_single` to avoid resource leaks
 
 ### Debugging CT failures
 

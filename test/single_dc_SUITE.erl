@@ -26,7 +26,8 @@
          domain_fronting_fragmented_case/1,
          domain_fronting_replay_case/1,
          per_sni_secrets_on_case/1,
-         per_sni_secrets_wrong_secret_case/1
+         per_sni_secrets_wrong_secret_case/1,
+         malformed_tls_hello_decode_error_case/1
         ]).
 
 -export([set_env/2,
@@ -734,6 +735,51 @@ per_sni_secrets_wrong_secret_case(Cfg) when is_list(Cfg) ->
     ?assertEqual(
        1, mtp_test_metric:get_tags(
             count, [?APP, protocol_error, total], [?FUNCTION_NAME, tls_invalid_digest])).
+
+%% @doc A structurally malformed ClientHello (ExtensionsLen=0 but data follows) must cause
+%% the proxy to send a TLS fatal decode_error alert and then close the connection,
+%% rather than crashing silently.
+malformed_tls_hello_decode_error_case({pre, Cfg}) ->
+    setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg);
+malformed_tls_hello_decode_error_case({post, Cfg}) ->
+    stop_single(Cfg);
+malformed_tls_hello_decode_error_case(Cfg) when is_list(Cfg) ->
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    %% Build a ClientHello that is structurally valid at the TLS record layer
+    %% (correct lengths, version bytes) but lies about ExtensionsLen=0 while
+    %% trailing bytes follow — this is the exact pattern seen from real scanners.
+    TlsPacketLen = 512,
+    HelloLen = 508,          % TlsPacketLen - 4 (hello type + hello len field)
+    Random = crypto:strong_rand_bytes(32),
+    SessId = crypto:strong_rand_bytes(32),
+    CipherSuites = <<19, 1>>,              % TLS_AES_128_GCM_SHA256, 2 bytes
+    %% Padding fills the rest of the TLS frame after ExtensionsLen to hit TlsPacketLen exactly.
+    %% Consumed so far inside the frame: hello_type(1)+hello_len(3)+version(2)+random(32)
+    %%   +sessid_len(1)+sessid(32)+cs_len(2)+cs(2)+comp_len(1)+comp(1)+ext_len(2) = 79
+    PaddingLen = TlsPacketLen - 79,
+    Padding = binary:copy(<<0>>, PaddingLen),
+    MalformedHello = <<22, 3, 1, TlsPacketLen:16,     % TLS record header (handshake, TLS1.0)
+                       1, HelloLen:24,                  % ClientHello type + length
+                       3, 3,                            % legacy version (TLS1.2)
+                       Random/binary,                   % 32-byte random
+                       32, SessId/binary,               % session ID
+                       2:16, CipherSuites/binary,       % cipher suites
+                       1, 0,                            % compression methods
+                       0:16,                            % ExtensionsLen = 0 (lie)
+                       Padding/binary>>,                % trailing bytes that should be extensions
+    {ok, Sock} = gen_tcp:connect(Host, Port, [binary, {active, false}], 2000),
+    ok = gen_tcp:send(Sock, MalformedHello),
+    %% Proxy must send back a TLS fatal decode_error alert (21, 3, 3, 0, 2, 2, 50)
+    ExpectedAlert = mtp_fake_tls:tls_decode_error_alert(),
+    {ok, Response} = gen_tcp:recv(Sock, byte_size(ExpectedAlert), 5000),
+    ?assertEqual(ExpectedAlert, Response),
+    %% Then close the connection
+    ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0, 2000)),
+    gen_tcp:close(Sock),
+    ?assertEqual(
+       1, mtp_test_metric:get_tags(
+            count, [?APP, protocol_error, total], [?FUNCTION_NAME, tls_bad_client_hello])).
 
 setup_single(Name, MtpPort, DcCfg0, Cfg) ->
     setup_single(Name, "127.0.0.1", MtpPort, DcCfg0, Cfg).

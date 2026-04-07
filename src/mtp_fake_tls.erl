@@ -16,6 +16,7 @@
 -export([from_client_hello/2,
          derive_sni_secret/3,
          parse_sni/1,
+         tls_decode_error_alert/0,
          new/0,
          try_decode_packet/2,
          decode_all/2,
@@ -54,8 +55,12 @@
 -define(TLS_12_VERSION, 3, 3).
 -define(TLS_13_VERSION, 3, 4).
 -define(TLS_REC_CHANGE_CIPHER, 20).
+-define(TLS_REC_ALERT, 21).
 -define(TLS_REC_HANDSHAKE, 22).
 -define(TLS_REC_DATA, 23).
+
+-define(TLS_ALERT_FATAL, 2).
+-define(TLS_ALERT_DECODE_ERROR, 50).
 
 -define(TLS_12_DATA, ?TLS_REC_DATA, ?TLS_12_VERSION).
 
@@ -156,9 +161,16 @@ parse_sni(Data) ->
                 {error, no_sni}
         end
     catch
-        error:_ ->
+        error:{protocol_error, tls_bad_client_hello, _} ->
             {error, bad_hello}
     end.
+
+%% TLS fatal decode_error alert (RFC 8446 §6).
+%% Sent to clients whose ClientHello is structurally invalid or lacks an SNI,
+%% making the proxy behave like a real TLS server rather than silently dropping.
+-spec tls_decode_error_alert() -> binary().
+tls_decode_error_alert() ->
+    <<?TLS_REC_ALERT, ?TLS_12_VERSION, 0, 2, ?TLS_ALERT_FATAL, ?TLS_ALERT_DECODE_ERROR>>.
 
 %% Derive a per-SNI 16-byte secret from the base secret, SNI domain and a salt.
 %% Derivation: SHA256(salt || hex32(base_secret) || sni_domain)[0:16]
@@ -194,7 +206,9 @@ parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, TlsFrameLen:?u16, %Fra
        cipher_suites = parse_suites(CipherSuites),
        compression_methods = parse_compression(CompMethods),
        extensions = parse_extensions(Extensions)
-      }.
+      };
+parse_client_hello(_Data) ->
+    error({protocol_error, tls_bad_client_hello, bad_client_hello}).
 
 parse_suites(Bin) ->
     [Suite || <<Suite:?u16>> <= Bin].

@@ -516,6 +516,14 @@ attempt_fronting(replay_session_detected, SniDomain,
         Config ->
             do_front(SniDomain, Config, Acc, Ip, Listener, S)
     end;
+attempt_fronting(tls_bad_client_hello, _Extra,
+                 #state{sock = Sock, transport = Transport} = _S) ->
+    _ = Transport:send(Sock, mtp_fake_tls:tls_decode_error_alert()),
+    skip;
+attempt_fronting(tls_no_sni, _Extra,
+                 #state{sock = Sock, transport = Transport} = _S) ->
+    _ = Transport:send(Sock, mtp_fake_tls:tls_decode_error_alert()),
+    skip;
 attempt_fronting(_Type, _Extra, _S) ->
     skip.
 
@@ -544,7 +552,7 @@ effective_secret(Data, Secret) ->
                     mtp_fake_tls:derive_sni_secret(Secret, Sni, Salt);
                 {error, Reason} ->
                     %% No SNI — not a valid fake-TLS MTP connection; fail fast.
-                    error({protocol_error, tls_invalid_digest, Reason})
+                    error({protocol_error, tls_bad_client_hello, Reason})
             end
     end.
 
