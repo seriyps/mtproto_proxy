@@ -24,7 +24,9 @@
          domain_fronting_off_case/1,
          domain_fronting_blacklist_case/1,
          domain_fronting_fragmented_case/1,
-         domain_fronting_replay_case/1
+         domain_fronting_replay_case/1,
+         per_sni_secrets_on_case/1,
+         per_sni_secrets_wrong_secret_case/1
         ]).
 
 -export([set_env/2,
@@ -684,6 +686,54 @@ domain_fronting_replay_case(Cfg) when is_list(Cfg) ->
     ?assertEqual({error, timeout}, gen_tcp:recv(Sock2, 0, 200)),
     gen_tcp:close(FrontSock),
     gen_tcp:close(Sock2).
+
+%% @doc per_sni_secrets=on: client connecting with a correctly-derived secret succeeds.
+per_sni_secrets_on_case({pre, Cfg}) ->
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg),
+    set_env([{per_sni_secrets, on}], Cfg1);
+per_sni_secrets_on_case({post, Cfg}) ->
+    stop_single(Cfg),
+    reset_env(Cfg);
+per_sni_secrets_on_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    RawSecret = mtp_handler:unhex(?config(mtp_secret, Cfg)),
+    Domain = <<"example.com">>,
+    Salt = application:get_env(mtproto_proxy, per_sni_secret_salt,
+                               <<"mtproto-proxy-per-sni-v1">>),
+    DerivedSecret = mtp_fake_tls:derive_sni_secret(RawSecret, Domain, Salt),
+    DerivedSecretHex = mtp_handler:hex(DerivedSecret),
+    Cli0 = mtp_test_client:connect(Host, Port, DerivedSecretHex, DcId,
+                                   {mtp_fake_tls, Domain}),
+    Cli1 = ping(Cli0),
+    ?assertEqual(
+       1, mtp_test_metric:get_tags(
+            count, [?APP, protocol_ok, total], [?FUNCTION_NAME, mtp_secure_fake_tls])),
+    ok = mtp_test_client:close(Cli1).
+
+%% @doc per_sni_secrets=on: client connecting with the raw base secret is rejected.
+per_sni_secrets_wrong_secret_case({pre, Cfg}) ->
+    Cfg1 = setup_single(?FUNCTION_NAME, 10000 + ?LINE, #{}, Cfg),
+    set_env([{per_sni_secrets, on}], Cfg1);
+per_sni_secrets_wrong_secret_case({post, Cfg}) ->
+    stop_single(Cfg),
+    reset_env(Cfg);
+per_sni_secrets_wrong_secret_case(Cfg) when is_list(Cfg) ->
+    DcId = ?config(dc_id, Cfg),
+    Host = ?config(mtp_host, Cfg),
+    Port = ?config(mtp_port, Cfg),
+    Secret = ?config(mtp_secret, Cfg),
+    %% Using the raw base secret (not derived) must be rejected.
+    ?assertError({badmatch, {error, closed}},
+                 begin
+                     Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId,
+                                                    {mtp_fake_tls, <<"example.com">>}),
+                     ping(Cli0)
+                 end),
+    ?assertEqual(
+       1, mtp_test_metric:get_tags(
+            count, [?APP, protocol_error, total], [?FUNCTION_NAME, tls_invalid_digest])).
 
 setup_single(Name, MtpPort, DcCfg0, Cfg) ->
     setup_single(Name, "127.0.0.1", MtpPort, DcCfg0, Cfg).

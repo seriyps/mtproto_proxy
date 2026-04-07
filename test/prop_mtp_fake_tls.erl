@@ -6,7 +6,8 @@
 -export([prop_codec_small/1, prop_codec_big/1, prop_stream/1,
          prop_variable_length_hello/1,
          prop_parse_sni_valid/1,
-         prop_parse_sni_garbage/1]).
+         prop_parse_sni_garbage/1,
+         prop_derive_sni_secret/1]).
 
 prop_codec_small(doc) ->
     "Tests that any binary below 65535 bytes can be encoded and decoded back as single frame".
@@ -123,4 +124,32 @@ prop_parse_sni_garbage() ->
 parse_sni_garbage(Bin) ->
     Result = mtp_fake_tls:parse_sni(Bin),
     ?assert(Result =:= {error, bad_hello} orelse Result =:= {error, no_sni}),
+    true.
+
+
+prop_derive_sni_secret(doc) ->
+    "derive_sni_secret/3 produces a 16-byte secret that is stable and domain/salt/secret-specific".
+
+prop_derive_sni_secret() ->
+    ?FORALL({Secret, Sni, Salt},
+            {proper_types:binary(16),
+             proper_types:non_empty(proper_types:binary()),
+             proper_types:non_empty(proper_types:binary())},
+            derive_sni_secret(Secret, Sni, Salt)).
+
+derive_sni_secret(Secret, Sni, Salt) ->
+    Derived = mtp_fake_tls:derive_sni_secret(Secret, Sni, Salt),
+    %% Always 16 bytes
+    ?assertEqual(16, byte_size(Derived)),
+    %% Deterministic
+    ?assertEqual(Derived, mtp_fake_tls:derive_sni_secret(Secret, Sni, Salt)),
+    %% Different SNI → different secret
+    OtherSni = <<Sni/binary, "_other">>,
+    ?assertNotEqual(Derived, mtp_fake_tls:derive_sni_secret(Secret, OtherSni, Salt)),
+    %% Different salt → different secret
+    OtherSalt = <<Salt/binary, "_other">>,
+    ?assertNotEqual(Derived, mtp_fake_tls:derive_sni_secret(Secret, Sni, OtherSalt)),
+    %% Different base secret → different derived secret
+    OtherSecret = crypto:strong_rand_bytes(16),
+    ?assertNotEqual(Derived, mtp_fake_tls:derive_sni_secret(OtherSecret, Sni, Salt)),
     true.

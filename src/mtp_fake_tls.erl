@@ -14,6 +14,7 @@
 -export([format_secret_base64/2,
          format_secret_hex/2]).
 -export([from_client_hello/2,
+         derive_sni_secret/3,
          parse_sni/1,
          new/0,
          try_decode_packet/2,
@@ -158,6 +159,24 @@ parse_sni(Data) ->
         error:_ ->
             {error, bad_hello}
     end.
+
+%% Derive a per-SNI 16-byte secret from the base secret, SNI domain and a salt.
+%% Derivation: SHA256(salt || hex32(base_secret) || sni_domain)[0:16]
+%%
+%% The salt is the sole true secret — keep it private and back it up alongside
+%% the base secret. The base_secret is included in the message for instance-specific
+%% binding (defense-in-depth if the salt ever leaks).
+%%
+%% Using hex32(base_secret) rather than raw bytes makes the derivation reproducible
+%% with a single SHA-256 call in any language without binary manipulation:
+%%   sha256(salt + secret_hex + sni)[0:16]
+-spec derive_sni_secret(BaseSecret :: binary(), SniDomain :: binary(), Salt :: binary())
+        -> binary().
+derive_sni_secret(BaseSecret, SniDomain, Salt) when byte_size(BaseSecret) == 16 ->
+    SecretHex = mtp_handler:hex(BaseSecret),
+    <<Derived:16/binary, _/binary>> =
+        crypto:hash(sha256, [Salt, SecretHex, SniDomain]),
+    Derived.
 
 
 parse_client_hello(<<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, TlsFrameLen:?u16, %Frame

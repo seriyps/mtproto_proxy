@@ -23,6 +23,8 @@ Features
   See `allowed_protocols` option.
 * Connection limit policies - limit number of connections by IP / tls-domain / port; IP / tls-domain
   blacklists / whitelists
+* Per-SNI derived secrets for personal proxies - each user gets a unique token tied to their
+  fake-TLS domain; base secret cannot be extracted from user links
 * Multiple ports with unique secret and promo tag for each port
 * Very high performance - can handle tens of thousands connections! Scales to all CPU cores.
   1Gbps, 90k connections on 4-core/8Gb RAM cloud server.
@@ -621,6 +623,97 @@ And then use https://seriyps.com/mtpgen.html to generate unique link for them.
 Be aware that domains table will be reset if proxy is restarted! Make sure you re-add them
 when proxy restarts (eg, via [systemd hook script](https://unix.stackexchange.com/q/326181/70382)).
 
+#### Strengthening personal proxies with per-SNI derived secrets
+
+With the classic scheme above, the SNI domain in a user's link is the only thing that
+distinguishes them — the underlying 16-byte secret is the same for everyone and is
+embedded verbatim in every link, so any user who inspects their link gets the raw secret.
+The only protection against credential sharing is the connection-count policy and the hope
+that the user's SNI domain is long and obscure enough that no one else guesses it.
+
+There is a tension here: for best DPI resistance, fake-TLS SNI domains should look like
+real websites — short, readable names like `news.example.com` — but short readable names
+are exactly the ones that are easy to guess or share.
+
+**Per-SNI derived secrets resolve this tension.** Instead of embedding the base secret,
+each user's link carries a token derived specifically for their SNI domain:
+
+```
+derived = SHA256(salt || hex(base_secret) || sni_domain)[0:16]
+link    = ee | derived (16 bytes) | sni_domain
+```
+
+A user who inspects their link sees only their own derived token. They cannot recover the
+base secret, cannot compute tokens for other domains, and cannot construct a valid
+connection using a different SNI. Combined with the domain whitelist, revoking a user
+(removing their domain from the whitelist) is now cryptographically meaningful: their
+derived token is unique to their domain and is worthless elsewhere.
+
+**Enable in `sys.config`:**
+
+```erlang
+{per_sni_secrets, on},
+{per_sni_secret_salt, <<"my-private-salt-change-me">>},
+```
+
+> ⚠️ **Switching to `on` invalidates all existing fake-TLS user links.** Re-issue every
+> user's link after the change.
+
+The salt is the sole true secret — an attacker who knows the base secret but not the salt
+cannot compute any derived secrets.
+
+*(HMAC-SHA256 would be cryptographically more rigorous here, but SHA-256 is secure enough
+for this use case and lets every language express the derivation as a
+single hash call — see the one-liners below.)*
+
+##### Generating user links
+
+Given your `SALT`, `SECRET` (32 lowercase hex chars from your config), and `SNI` (the
+domain in the user's link):
+
+**Bash (Linux — `sha256sum` from coreutils):**
+```bash
+SALT="my-private-salt-change-me"
+SECRET="d0d6e111bada5511fcce9584deadbeef"
+SNI="alice.example.com"
+
+DERIVED=$(printf '%s%s%s' "$SALT" "$SECRET" "$SNI" | sha256sum | cut -c1-32)
+SNI_HEX=$(printf '%s' "$SNI" | od -A n -t x1 | tr -d ' \n')
+echo "ee${DERIVED}${SNI_HEX}"
+```
+
+**Bash (macOS — replace `sha256sum` with `shasum -a 256`):**
+```bash
+DERIVED=$(printf '%s%s%s' "$SALT" "$SECRET" "$SNI" | shasum -a 256 | cut -c1-32)
+```
+
+**Python:**
+```python
+import hashlib
+salt, secret, sni = "my-private-salt-change-me", "d0d6e111bada5511fcce9584deadbeef", "alice.example.com"
+derived = hashlib.sha256((salt + secret + sni).encode()).hexdigest()[:32]
+print(f"ee{derived}{sni.encode().hex()}")
+```
+
+**Node.js:**
+```javascript
+const crypto = require('crypto');
+const [salt, secret, sni] = ['my-private-salt-change-me', 'd0d6e111bada5511fcce9584deadbeef', 'alice.example.com'];
+const derived = crypto.createHash('sha256').update(salt + secret + sni).digest('hex').slice(0, 32);
+console.log('ee' + derived + Buffer.from(sni).toString('hex'));
+```
+
+**Browser JavaScript (no dependencies):**
+```javascript
+async function makeLink(salt, secret, sni) {
+    const data = new TextEncoder().encode(salt + secret + sni);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    const hex = b => Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
+    return 'ee' + hex(new Uint8Array(hash).slice(0, 16)) + hex(new TextEncoder().encode(sni));
+}
+// makeLink('my-private-salt-change-me', 'd0d6...', 'alice.example.com').then(console.log)
+```
+
 ### IPv6
 
 Currently proxy only supports client connections via IPv6, but can only connect to Telegram servers
@@ -652,6 +745,8 @@ different `listen_ip` (one v4 and one v6):
  {kernel,
 <...>
 ```
+
+Keep in mind that `listen_ip => "::"` would listen both on IPv6 and IPv4(!!) addresses (in IPv6 to v4 compat mode). If you need separate listeners, specify full IPv6 address explicitly.
 
 ### Tune resource consumption
 

@@ -365,13 +365,14 @@ parse_upstream_data(<<?TLS_START, _/binary>> = AllData,
         true ->
             assert_protocol(mtp_fake_tls),
             <<Data:FullPacketSize/binary, Tail/binary>> = AllData,
-            {ok, Response, Meta, TlsCodec} = mtp_fake_tls:from_client_hello(Data, Secret),
+            EffSecret = effective_secret(Data, Secret),
+            {ok, Response, Meta, TlsCodec} = mtp_fake_tls:from_client_hello(Data, EffSecret),
             maybe_check_replay_tls(Meta),
             check_tls_policy(Listener, Ip, Meta),
             Codec1 = mtp_codec:replace(tls, true, TlsCodec, Codec0),
             Codec = mtp_codec:push_back(tls, Tail, Codec1),
             ok = up_send_raw(Response, S),        %FIXME: if this send fail, we will get counter policy leak
-            {ok, S#state{codec = Codec, stage = init,
+            {ok, S#state{codec = Codec, stage = init, secret = EffSecret,
                          policy_state = {ok, maps:get(sni_domain, Meta, undefined)}}};
         false ->
             %% Received only part of the ClientHello — push it back into the codec
@@ -528,6 +529,25 @@ maybe_check_replay_tls(#{client_digest := Digest} = Meta) ->
             ok
     end.
 
+%% Select the secret to use for fake-TLS ClientHello validation.
+%% When per_sni_secrets=on, derive a domain-specific 16-byte secret so that each
+%% SNI domain gets a unique token — users cannot recover the base secret from their link.
+effective_secret(Data, Secret) ->
+    case application:get_env(?APP, per_sni_secrets, off) of
+        off ->
+            Secret;
+        on ->
+            Salt = application:get_env(?APP, per_sni_secret_salt,
+                                       <<"mtproto-proxy-per-sni-v1">>),
+            case mtp_fake_tls:parse_sni(Data) of
+                {ok, Sni} ->
+                    mtp_fake_tls:derive_sni_secret(Secret, Sni, Salt);
+                {error, Reason} ->
+                    %% No SNI — not a valid fake-TLS MTP connection; fail fast.
+                    error({protocol_error, tls_invalid_digest, Reason})
+            end
+    end.
+
 do_front(SniDomain, Config, Data, Ip, Listener,
          #state{sock = Sock, transport = Transport} = S) ->
     try
@@ -675,6 +695,9 @@ sum_binary(BinInfo) ->
                               Sum + (Size / RefC)
                       end, 0, BinInfo)).
 
+-if(?OTP_RELEASE >= 26).
+hex(Bin) -> binary:encode_hex(Bin, lowercase).
+-else.
 hex(Bin) ->
     <<begin
          if N < 10 ->
@@ -683,6 +706,7 @@ hex(Bin) ->
                  <<($W + N)>>
          end
      end || <<N:4>> <= Bin>>.
+-endif.
 
 unhex(Chars) ->
     UnHChar = fun(C) when C < $W -> C - $0;

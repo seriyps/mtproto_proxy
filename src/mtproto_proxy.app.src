@@ -48,6 +48,23 @@
         %%   {max_connections, [port_name, tls_domain], 15}
         %%  ]},
 
+        %% Per-SNI derived secrets. When enabled, each fake-TLS SNI domain gets a unique
+        %% 16-byte secret derived from the base secret and the salt. Users can no longer
+        %% extract the base secret from their link or forge secrets for other SNI domains.
+        %% See README.md for details.
+        %%
+        %% off - (default) base secret used verbatim; all existing links work unchanged.
+        %% on  - derived secrets required; old base-secret links are rejected.
+        %%       Re-issue all fake-TLS user links after switching to `on`.
+        {per_sni_secrets, off},
+
+        %% Salt used in per-SNI secret derivation (replace with unique secret value!):
+        %%   SHA256(salt || hex(base_secret) || sni_domain)[0:16]
+        %% The salt is the sole secret protecting derived secrets — back it up alongside
+        %% the base secret from `ports`. Losing the salt makes all derived secrets
+        %% unrecoverable (users will need new links).
+        {per_sni_secret_salt, <<"mtproto-proxy-per-sni-v1">>},
+
         %% Close connection if it failed to perform handshake in this many seconds
         {init_timeout_sec, 60},
         %% Switch client to memory-saving mode after this many seconds of inactivity
