@@ -80,6 +80,7 @@ keys_str() ->
 send(Upstream, Packet) ->
     gen_server:cast(Upstream, Packet).
 
+%% See doc/migration-flow.md
 -spec migrate(pid(), OldDown :: mtp_down_conn:handle()) -> ok.
 migrate(Upstream, OldDown) ->
     gen_server:cast(Upstream, {migrate, OldDown}).

@@ -171,6 +171,7 @@ handle_info({tcp_closed, Sock}, #state{sock = Sock, upstreams = Ups, pool = Pool
         0 ->
             {stop, {shutdown, downstream_socket_closed}, State};
         N ->
+            %% See ../doc/migration-flow.md
             %% Remove self from pool first so no new upstreams can be assigned.
             ok = mtp_dc_pool:downstream_closing(Pool, self()),
             ?LOG_INFO("Downstream socket closed with ~p active client(s); migrating", [N]),

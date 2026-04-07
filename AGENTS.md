@@ -199,6 +199,32 @@ Workflow:
 - All configuration options are documented in `src/mtproto_proxy.app.src`.
 - Config can be reloaded without restart: `make update-sysconfig && systemctl reload mtproto-proxy`.
 
+## Debugging
+
+### Enabling debug logs for a single module at runtime
+
+The primary log level is `info`. To see `?LOG_DEBUG` messages from one module without
+flooding the log with debug output from all of OTP:
+
+```erlang
+% In the running Erlang shell (e.g. via: sudo /opt/personal_mtproxy/bin/mtproto_proxy remote_console)
+logger:set_module_level(mtp_handler, debug).   % override primary gate for this module only
+logger:set_handler_config(default, level, debug).  % let the file handler pass debug through
+```
+
+This works because `set_module_level` bypasses the primary level check *only* for the
+named module — no other module's debug messages are affected. The handler level change
+is required because the `default` file handler has its own `level => info` guard.
+
+To revert:
+
+```erlang
+logger:unset_module_level(mtp_handler).
+logger:set_handler_config(default, level, info).
+```
+
+Both settings are in-memory only and reset on restart.
+
 ## Security Considerations
 
 - Do **not** commit real secrets, tags, or credentials into config files.
