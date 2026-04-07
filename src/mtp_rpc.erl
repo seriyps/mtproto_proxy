@@ -37,6 +37,9 @@
 -define(RPC_SIMPLE_ACK, 155,64,172,59).         %0x3bac409b
 -define(TL_PROXY_TAG, 174,38,30,219).
 
+-define(RPC_PING, 223,162,48,87).               %0x5730a2df
+-define(RPC_PONG, 167,234,48,132).              %0x8430eaa7
+
 -define(RPC_NONCE, 170,135,203,122).
 -define(RPC_HANDSHAKE, 245,238,130,118).
 -define(RPC_FLAGS, 0, 0, 0, 0).
@@ -46,7 +49,7 @@
 -define(FLAG_HAS_AD_TAG    , 16#8).
 -define(FLAG_MAGIC         , 16#1000).
 -define(FLAG_EXTMODE2      , 16#20000).
--define(FLAG_PAD           , 16#8000000).       %TODO: use it
+-define(FLAG_PAD           , 16#8000000).
 -define(FLAG_INTERMEDIATE  , 16#20000000).
 -define(FLAG_ABRIDGED      , 16#40000000).
 -define(FLAG_QUICKACK      , 16#80000000).
@@ -56,7 +59,8 @@
 -type conn_id() :: integer().
 -type packet() :: {proxy_ans, conn_id(), binary()}
                 | {close_ext, conn_id()}
-                | {simple_ack, conn_id(), binary()}.
+                | {simple_ack, conn_id(), binary()}
+                | {ping, integer()}.
 
 decode_nonce(<<?RPC_NONCE,
                KeySelector:4/binary,
@@ -95,18 +99,27 @@ decode_packet(<<?RPC_CLOSE_EXT, ConnId:64/signed-little>>) ->
 decode_packet(<<?RPC_SIMPLE_ACK, ConnId:64/signed-little, Confirm:4/binary>>) ->
     %% mtproto/mtproto-proxy.c:push_rpc_confirmation
     {simple_ack, ConnId, Confirm};
+decode_packet(<<?RPC_PING, PingId:64/little>>) ->
+    {ping, PingId};
 decode_packet(<<Tag:4/binary, Tail/binary>>) ->
     {unknown, Tag, Tail}.
 
 
-encode_packet({data, Msg}, {{ConnId, ClientAddr, ProxyTag}, ProxyAddr}) ->
+%% Maps the client-side transport protocol to the corresponding RPC_PROXY_REQ flags.
+%% See net/net-tcp-rpc-ext-server.c for how MTProxy assigns these from the tag byte.
+-spec protocol_flag(mtp_abridged | mtp_intermediate | mtp_secure) -> non_neg_integer().
+protocol_flag(mtp_abridged)    -> ?FLAG_ABRIDGED;
+protocol_flag(mtp_intermediate) -> ?FLAG_INTERMEDIATE;
+protocol_flag(mtp_secure)      -> ?FLAG_INTERMEDIATE bor ?FLAG_PAD.
+
+encode_packet({data, Msg}, {{ConnId, ClientAddr, ProxyTag, Protocol}, ProxyAddr}) ->
     %% See mtproto/mtproto-proxy.c:forward_mtproto_packet
     ((iolist_size(Msg) rem 4) == 0)
         orelse error({not_aligned, Msg}),
     Flags1 = (?FLAG_HAS_AD_TAG
                   bor ?FLAG_MAGIC
                   bor ?FLAG_EXTMODE2
-                  bor ?FLAG_ABRIDGED),
+                  bor protocol_flag(Protocol)),
     %% if (auth_key_id) ...
     Flags = case Msg of
                 %% XXX: what if Msg is iolist?
@@ -128,7 +141,9 @@ encode_packet({data, Msg}, {{ConnId, ClientAddr, ProxyTag}, ProxyAddr}) ->
          | Msg
     ];
 encode_packet(remote_closed, ConnId) ->
-    <<?RPC_CLOSE_CONN, ConnId:64/little-signed>>.
+    <<?RPC_CLOSE_CONN, ConnId:64/little-signed>>;
+encode_packet({pong, PingId}, _) ->
+    <<?RPC_PONG, PingId:64/little>>.
 
 %%
 %% Middle-proxy side encoding and decodong (FOR TESTS ONLY!)
@@ -174,7 +189,8 @@ inet_pton(IPv6) when tuple_size(IPv6) == 8 ->
 
 tst_new() ->
     {{1, encode_ip_port({109, 238, 131, 159}, 1128),
-      <<220,190,143,20,147,250,76,217,171,48,8,145,192,181,179,38>>},
+      <<220,190,143,20,147,250,76,217,171,48,8,145,192,181,179,38>>,
+      mtp_abridged},
      encode_ip_port({80, 211, 29, 34}, 53634)}.
 
 decode_none_test() ->

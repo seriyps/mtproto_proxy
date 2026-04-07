@@ -75,17 +75,18 @@ c2s_packet_gen() ->
        {{data,
          mtp_prop_gen:packet_4b()               %Data
         },
-        {{proper_types:integer(),               %ConnId
-          proper_types:binary(20),              %ClientAddr
-          proper_types:binary(16)               %ProxyTag
-         },
-         proper_types:binary(20)                %ProxyAddr
-        }},
+         {{proper_types:integer(),               %ConnId
+           proper_types:binary(20),              %ClientAddr
+           proper_types:binary(16),              %ProxyTag
+           proper_types:oneof([mtp_abridged, mtp_intermediate, mtp_secure])  %Protocol
+          },
+          proper_types:binary(20)                %ProxyAddr
+         }},
        {remote_closed,
         proper_types:integer()}
       ]).
 
-c2s_packet({{data, Data} = Packet, {{ConnId, _, _}, _} = Static}) ->
+c2s_packet({{data, Data} = Packet, {{ConnId, _, _, _}, _} = Static}) ->
     Bin = mtp_rpc:encode_packet(Packet, Static),
     {data, ConnId, Data} == mtp_rpc:srv_decode_packet(iolist_to_binary(Bin));
 c2s_packet({remote_closed, ConnId} = Packet) ->
