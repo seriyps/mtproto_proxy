@@ -25,7 +25,7 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
--export_type([handle/0, upstream_opts/0]).
+-export_type([handle/0, upstream_opts/0, packet_layer/0]).
 
 -include_lib("kernel/include/logger.hrl").
 
@@ -38,13 +38,24 @@
 -define(MAX_CODEC_BUFFERS, 5 * 1024 * 1024).
 -define(DEFAULT_CLIENTS_PER_CONN, 300).
 
+%% Linux raw socket option constants for TCP keepalive tuning.
+%% Named options (keepidle/keepintvl/keepcnt) require OTP 28.3+ (Kernel 10.5);
+%% raw options work on OTP 25+ on any Linux kernel.
+-define(IPPROTO_TCP,   6).
+-define(TCP_KEEPIDLE,  4).
+-define(TCP_KEEPINTVL, 5).
+-define(TCP_KEEPCNT,   6).
+
 -type handle() :: pid().
+-type packet_layer() :: mtp_abridged | mtp_intermediate | mtp_secure.
 -type upstream_opts() :: #{addr := mtp_config:netloc_v4v6(), % IP/Port of TG client
-                           ad_tag => binary()}.
+                           ad_tag => binary(),
+                           packet_layer => packet_layer()}.
 -type upstream() :: {
                 _UpsStatic ::{_ConnId :: mtp_rpc:conn_id(),
                               _Addr :: binary(),
-                              _AdTag :: binary() | undefined},
+                              _AdTag :: binary() | undefined,
+                              _Protocol :: mtp_abridged | mtp_intermediate | mtp_secure},
                 _NonAckCount :: non_neg_integer(),
                 _NonAckBytes :: non_neg_integer()
                }.
@@ -155,8 +166,11 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock, dc_id = DcId} = S) ->
     {ok, S1} = handle_downstream_data(Data, S),
     activate_if_no_overflow(S1),
     {noreply, S1};
-handle_info({tcp_closed, Sock}, #state{sock = Sock} = State) ->
-    {stop, downstream_socket_closed, State};
+handle_info({tcp_closed, Sock}, #state{sock = Sock, upstreams = Ups} = State) ->
+    case map_size(Ups) of
+        0 -> {stop, {shutdown, downstream_socket_closed}, State};
+        _ -> {stop, downstream_socket_closed, State}
+    end;
 handle_info({tcp_error, Sock, Reason}, #state{sock = Sock} = State) ->
     {stop, {downstream_tcp_error, Reason}, State};
 handle_info(do_connect, #state{dc_id = DcId} = State) ->
@@ -180,10 +194,15 @@ handle_info(handshake_timeout, #state{stage = Stage, dc_id = DcId} = St) ->
     end.
 
 
-terminate(_Reason, #state{upstreams = Ups}) ->
-    %% Should I do this or dc_pool? Maybe only when reason is 'normal'?
-    ?LOG_WARNING("Downstream terminates with reason ~p; len(upstreams)=~p",
-         [_Reason, map_size(Ups)]),
+terminate(Reason, #state{upstreams = Ups}) ->
+    NUps = map_size(Ups),
+    case Reason of
+        {shutdown, downstream_socket_closed} ->
+            ?LOG_INFO("Downstream closed (no active clients); len(upstreams)=~p", [NUps]);
+        _ ->
+            ?LOG_WARNING("Downstream terminates with reason ~p; len(upstreams)=~p",
+                         [Reason, NUps])
+    end,
     Self = self(),
     lists:foreach(
       fun(Upstream) ->
@@ -211,7 +230,8 @@ handle_upstream_new(Upstream, Opts, #state{upstreams = Ups,
     ConnId = erlang:unique_integer(),
     {Ip, Port} = maps:get(addr, Opts),
     AdTag = maps:get(ad_tag, Opts, undefined),
-    UpsStatic = {ConnId, iolist_to_binary(mtp_rpc:encode_ip_port(Ip, Port)), AdTag},
+    PacketLayer = maps:get(packet_layer, Opts, mtp_abridged),
+    UpsStatic = {ConnId, iolist_to_binary(mtp_rpc:encode_ip_port(Ip, Port)), AdTag, PacketLayer},
     Ups1 = Ups#{Upstream => {UpsStatic, 0, 0}},
     UpsRev1 = UpsRev#{ConnId => Upstream},
     ?LOG_DEBUG("New upstream=~p conn_id=~p", [Upstream, ConnId]),
@@ -223,7 +243,7 @@ handle_upstream_closed(Upstream, #state{upstreams = Ups,
                                         upstreams_rev = UpsRev} = St) ->
     %% See "mtproto-proxy.c:remove_ext_connection
     case maps:take(Upstream, Ups) of
-        {{{ConnId, _, _}, _, _}, Ups1} ->
+        {{{ConnId, _, _, _}, _, _}, Ups1} ->
             St1 = non_ack_cleanup_upstream(Upstream, St),
             UpsRev1 = maps:remove(ConnId, UpsRev),
             St2 = St1#state{upstreams = Ups1,
@@ -287,6 +307,9 @@ handle_rpc({close_ext, ConnId}, St) ->
     end;
 handle_rpc({simple_ack, ConnId, Confirm}, S) ->
     up_send({simple_ack, self(), Confirm}, ConnId, S);
+handle_rpc({ping, PingId}, S) ->
+    {ok, S1} = down_send(mtp_rpc:encode_packet({pong, PingId}, undefined), S),
+    S1;
 handle_rpc({unknown, Tag, Tail}, S) ->
     ?LOG_INFO("Unknown packet from backend. Tag ~w, tail: ~w", [Tag, Tail]),
     S.
@@ -472,13 +495,20 @@ connect(DcId, S) ->
 tcp_connect(Host, Port) ->
     BufSize = application:get_env(?APP, downstream_socket_buffer_size,
                                   ?MAX_SOCK_BUF_SIZE),
+    %% TCP keepalive tuning: match reference implementations (MTProxy C, mtprotoproxy Python).
+    %% Start probing after 40s idle, retry every 40s, drop after 5 failed probes.
+    %% Raw options are used for OTP 25+ compatibility (named keepidle/keepintvl/keepcnt
+    %% require OTP 28.3+ / Kernel 10.5).
     SockOpts = [{active, once},
                 {packet, raw},
                 {mode, binary},
                 {buffer, BufSize},
                 {send_timeout, ?SEND_TIMEOUT},
                 %% {nodelay, true},
-                {keepalive, true}],
+                {keepalive, true},
+                {raw, ?IPPROTO_TCP, ?TCP_KEEPIDLE,  <<40:32/native>>},
+                {raw, ?IPPROTO_TCP, ?TCP_KEEPINTVL, <<40:32/native>>},
+                {raw, ?IPPROTO_TCP, ?TCP_KEEPCNT,   <<5:32/native>>}],
     case gen_tcp:connect(Host, Port, SockOpts, ?CONN_TIMEOUT) of
         {ok, Sock} ->
             {ok, Sock};

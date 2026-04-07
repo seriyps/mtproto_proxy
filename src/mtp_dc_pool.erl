@@ -72,7 +72,8 @@ dc_to_pool_name(DcId)  ->
     binary_to_atom(<<"mtp_dc_pool_", (integer_to_binary(DcId))/binary>>, utf8).
 
 -spec get(pid(), upstream(), #{addr := mtp_config:netloc_v4v6(),
-                               ad_tag => binary()}) -> downstream() | {error, atom()}.
+                               ad_tag => binary(),
+                               packet_layer => mtp_down_conn:packet_layer()}) -> downstream() | {error, atom()}.
 get(Pool, Upstream, #{addr := _} = Opts) ->
     gen_server:call(Pool, {get, Upstream, Opts}).
 
@@ -192,7 +193,12 @@ handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
                 {Pid, DsM1} ->
                     Pending1 = lists:delete(Pid, Pending),
                     Ds1 = ds_remove(Pid, Ds),
-                    ?LOG_ERROR("Downstream=~p is down. reason=~p", [Pid, Reason]),
+                    case Reason of
+                        {shutdown, downstream_socket_closed} ->
+                            ?LOG_INFO("Downstream=~p closed (no active clients)", [Pid]);
+                        _ ->
+                            ?LOG_ERROR("Downstream=~p is down. reason=~p", [Pid, Reason])
+                    end,
                     maybe_restart_connection(
                       St#state{pending_downstreams = Pending1,
                                downstreams = Ds1,
