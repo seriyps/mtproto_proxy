@@ -10,7 +10,7 @@
 -behaviour(ranch_protocol).
 
 %% API
--export([start_link/3, start_link/4, send/2]).
+-export([start_link/3, start_link/4, send/2, migrate/2]).
 -export([hex/1, unhex/1]).
 -export([keys_str/0]).
 
@@ -79,6 +79,10 @@ keys_str() ->
 -spec send(pid(), {proxy_ans, pid(), binary()} | {simple_ack, pid(), binary()} | {close_ext, pid()}) -> ok.
 send(Upstream, Packet) ->
     gen_server:cast(Upstream, Packet).
+
+-spec migrate(pid(), OldDown :: mtp_down_conn:handle()) -> ok.
+migrate(Upstream, OldDown) ->
+    gen_server:cast(Upstream, {migrate, OldDown}).
 
 %% Callbacks
 
@@ -175,6 +179,27 @@ handle_cast({close_ext, Down}, #state{down = Down, sock = USock, transport = UTr
     ?LOG_DEBUG("asked to close connection by downstream"),
     ok = UTrans:close(USock),
     {stop, normal, S#state{down = undefined}};
+handle_cast({migrate, OldDown}, #state{down = OldDown, dc_id = {_DcId, Pool},
+                                       codec = Codec, addr = Addr,
+                                       ad_tag = AdTag, listener = Listener} = S) ->
+    {PacketLayerMod, _} = mtp_codec:info(packet, Codec),
+    Opts = #{addr => Addr, ad_tag => AdTag, packet_layer => PacketLayerMod},
+    case mtp_dc_pool:migrate(Pool, OldDown, self(), Opts) of
+        {error, Reason} ->
+            ?LOG_DEBUG("Migration failed (~p), closing client", [Reason]),
+            true = is_atom(Reason),
+            mtp_metric:count_inc([?APP, downstream_migration, total], 1,
+                                 #{labels => [Listener, Reason]}),
+            {stop, normal, S#state{down = undefined}};
+        NewDown ->
+            ?LOG_DEBUG("Migrated from ~p to ~p", [OldDown, NewDown]),
+            mtp_metric:count_inc([?APP, downstream_migration, total], 1,
+                                 #{labels => [Listener, ok]}),
+            {noreply, S#state{down = NewDown}}
+    end;
+handle_cast({migrate, _StaleDown}, S) ->
+    %% Stale migrate from a previous down_conn — already migrated, ignore.
+    {noreply, S};
 handle_cast({simple_ack, Down, Confirm}, #state{down = Down} = S) ->
     ?LOG_INFO("Simple ack: ~p, ~p", [Down, Confirm]),
     {noreply, S};
@@ -613,13 +638,19 @@ up_send_raw(Data, #state{sock = Sock,
                       end
               end, #{labels => [Listener]}).
 
-down_send(Packet, #state{down = Down} = S) ->
+down_send(Packet, #state{down = Down, listener = Listener} = S) ->
     %% ?LOG_DEBUG(">Down: ~p", [Packet]),
     case mtp_down_conn:send(Down, Packet) of
         ok ->
             {ok, S};
         {error, unknown_upstream} ->
-            handle_unknown_upstream(S)
+            handle_unknown_upstream(S);
+        {error, migrating} ->
+            %% DC connection is closing; this packet was never sent to TG.
+            %% Stop the handler so the client reconnects and resends.
+            mtp_metric:count_inc([?APP, downstream_migration, total], 1,
+                                 #{labels => [Listener, mid_send]}),
+            throw({stop, normal, S})
     end.
 
 handle_unknown_upstream(#state{down = Down, sock = USock, transport = UTrans} = S) ->

@@ -101,7 +101,7 @@ shutdown(Conn) ->
     gen_server:cast(Conn, shutdown).
 
 %% To be called by upstream
--spec send(handle(), iodata()) -> ok | {error, unknown_upstream}.
+-spec send(handle(), iodata()) -> ok | {error, unknown_upstream | migrating}.
 send(Conn, Data) ->
     gen_server:call(Conn, {send, Data}, ?SEND_TIMEOUT * 2).
 
@@ -166,10 +166,24 @@ handle_info({tcp, Sock, Data}, #state{sock = Sock, dc_id = DcId} = S) ->
     {ok, S1} = handle_downstream_data(Data, S),
     activate_if_no_overflow(S1),
     {noreply, S1};
-handle_info({tcp_closed, Sock}, #state{sock = Sock, upstreams = Ups} = State) ->
+handle_info({tcp_closed, Sock}, #state{sock = Sock, upstreams = Ups, pool = Pool} = State) ->
     case map_size(Ups) of
-        0 -> {stop, {shutdown, downstream_socket_closed}, State};
-        _ -> {stop, downstream_socket_closed, State}
+        0 ->
+            {stop, {shutdown, downstream_socket_closed}, State};
+        N ->
+            %% Remove self from pool first so no new upstreams can be assigned.
+            ok = mtp_dc_pool:downstream_closing(Pool, self()),
+            ?LOG_INFO("Downstream socket closed with ~p active client(s); migrating", [N]),
+            %% Notify all known upstreams to migrate immediately.
+            [mtp_handler:migrate(Upstream, self()) || Upstream <- maps:keys(Ups)],
+            %% Drain remaining mailbox messages:
+            %% - {send,...} calls: reply {error, migrating} to unblock callers
+            %% - upstream_new casts: handlers assigned to us by the pool just
+            %%   before downstream_closing ran; migrate them immediately
+            NDrained = drain_mailbox(5000),
+            NDrained > 0 andalso
+                ?LOG_INFO("Drained ~p pending send call(s) during migration", [NDrained]),
+            {stop, {shutdown, downstream_migrated}, State}
     end;
 handle_info({tcp_error, Sock, Reason}, #state{sock = Sock} = State) ->
     {stop, {downstream_tcp_error, Reason}, State};
@@ -194,6 +208,9 @@ handle_info(handshake_timeout, #state{stage = Stage, dc_id = DcId} = St) ->
     end.
 
 
+terminate({shutdown, downstream_migrated}, _State) ->
+    %% Normal shutdown during migration; no need to log or notify upstreams.
+    ok;
 terminate(Reason, #state{upstreams = Ups}) ->
     NUps = map_size(Ups),
     case Reason of
@@ -207,8 +224,8 @@ terminate(Reason, #state{upstreams = Ups}) ->
     lists:foreach(
       fun(Upstream) ->
               ok = mtp_handler:send(Upstream, {close_ext, Self})
-      end, maps:keys(Ups)),
-    ok.
+      end, maps:keys(Ups)).
+
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
@@ -470,6 +487,26 @@ non_ack_cleanup_upstream(Upstream, #state{non_ack_count = Cnt,
     maybe_activate(
       St#state{non_ack_count = Cnt - UpsCnt,
                non_ack_bytes = Oct - UpsOct}).
+
+%% Drain pending messages from our mailbox during migration.
+%% - gen_server:call({send,_}): reply {error, migrating} so callers unblock
+%% - gen_server:cast({upstream_new,...}): send {migrate} immediately
+%% Timeout controls how long to wait for the next message before giving up.
+%% Returns count of drained send calls.
+drain_mailbox(Timeout) ->
+    drain_mailbox(Timeout, 0).
+
+drain_mailbox(Timeout, NSend) ->
+    receive
+        {'$gen_call', From, {send, _Data}} ->
+            gen_server:reply(From, {error, migrating}),
+            drain_mailbox(Timeout, NSend + 1);
+        {'$gen_cast', {upstream_new, Upstream, _Opts}} ->
+            mtp_handler:migrate(Upstream, self()),
+            drain_mailbox(Timeout, NSend)
+    after Timeout ->
+            NSend
+    end.
 
 
 %%

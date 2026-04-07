@@ -17,6 +17,8 @@
 -export([start_link/1,
          get/3,
          return/2,
+         downstream_closing/2,
+         migrate/4,
          add_connection/1,
          ack_connected/2,
          status/1,
@@ -80,6 +82,23 @@ get(Pool, Upstream, #{addr := _} = Opts) ->
 return(Pool, Upstream) ->
     gen_server:cast(Pool, {return, Upstream}).
 
+%% Called by a downstream that received tcp_closed with active upstreams.
+%% Removes the downstream from the pool store synchronously so it won't receive
+%% new upstreams while its handlers are migrating.
+-spec downstream_closing(pid(), downstream()) -> ok.
+downstream_closing(Pool, Downstream) ->
+    gen_server:call(Pool, {downstream_closing, Downstream}).
+
+%% Atomically return an upstream from a dying downstream and assign it to a new one.
+%% Avoids the "attempt to release unknown connection" warning that return+get would cause.
+-spec migrate(pid(), downstream(), upstream(),
+              #{addr := mtp_config:netloc_v4v6(),
+                ad_tag => binary(),
+                packet_layer => mtp_down_conn:packet_layer()}) ->
+          downstream() | {error, empty | not_found}.
+migrate(Pool, OldDown, Upstream, Opts) ->
+    gen_server:call(Pool, {migrate, OldDown, Upstream, Opts}).
+
 add_connection(Pool) ->
     gen_server:call(Pool, add_connection, 10000).
 
@@ -108,6 +127,11 @@ handle_call({get, Upstream, Opts}, _From, State) ->
         {Downstream, State1} ->
             {reply, Downstream, State1}
     end;
+handle_call({downstream_closing, Downstream}, _From, State) ->
+    {reply, ok, handle_downstream_closing(Downstream, State)};
+handle_call({migrate, OldDown, Upstream, Opts}, _From, State) ->
+    {Reply, State1} = handle_migrate(OldDown, Upstream, Opts, State),
+    {reply, Reply, State1};
 handle_call(add_connection, _From, State) ->
     State1 = connect(State),
     {reply, ok, State1};
@@ -178,6 +202,39 @@ handle_return(Upstream, #state{downstreams = Ds,
     St#state{downstreams = Ds1,
              upstreams = Us1}.
 
+%% Remove a dying downstream from the store before its handlers migrate.
+%% Called synchronously by mtp_down_conn so removal is complete before
+%% {migrate, Self} is sent to upstreams.
+handle_downstream_closing(Downstream, #state{downstreams = Ds,
+                                             downstream_monitors = DsM,
+                                             pending_downstreams = Pending} = St) ->
+    DsM1 = maps:filter(
+             fun(MonRef, Pid) when Pid =:= Downstream ->
+                     erlang:demonitor(MonRef, [flush]),
+                     false;
+                 (_, _) ->
+                     true
+             end, DsM),
+    Ds1 = ds_remove(Downstream, Ds),
+    Pending1 = lists:delete(Downstream, Pending),
+    maybe_restart_connection(
+      St#state{downstreams = Ds1,
+               downstream_monitors = DsM1,
+               pending_downstreams = Pending1}).
+
+%% Atomically reassign an upstream from its dying downstream to a new one.
+handle_migrate(_OldDown, Upstream, Opts, #state{upstreams = Us} = St) ->
+    case maps:take(Upstream, Us) of
+        {{_AnyOldDown, OldMonRef}, Us1} ->
+            erlang:demonitor(OldMonRef, [flush]),
+            case handle_get(Upstream, Opts, St#state{upstreams = Us1}) of
+                {empty, St1} -> {{error, empty}, St1};
+                {NewDown, St1} -> {NewDown, St1}
+            end;
+        error ->
+            {{error, not_found}, St}
+    end.
+
 handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
                                         downstream_monitors = DsM,
                                         upstreams = Us,
@@ -196,6 +253,8 @@ handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
                     case Reason of
                         {shutdown, downstream_socket_closed} ->
                             ?LOG_INFO("Downstream=~p closed (no active clients)", [Pid]);
+                        {shutdown, downstream_migrated} ->
+                            ?LOG_INFO("Downstream=~p finished migrating clients", [Pid]);
                         _ ->
                             ?LOG_ERROR("Downstream=~p is down. reason=~p", [Pid, Reason])
                     end,
@@ -204,7 +263,7 @@ handle_down(MonRef, Pid, Reason, #state{downstreams = Ds,
                                downstreams = Ds1,
                                downstream_monitors = DsM1});
                 _ ->
-                    ?LOG_ERROR("Unexpected DOWN. ref=~p, pid=~p, reason=~p", [MonRef, Pid, Reason]),
+                    ?LOG_WARNING("Unexpected DOWN. ref=~p, pid=~p, reason=~p", [MonRef, Pid, Reason]),
                     St
             end
     end.

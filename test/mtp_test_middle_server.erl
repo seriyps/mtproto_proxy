@@ -5,7 +5,8 @@
 
 -export([start/2,
          stop/1,
-         get_rpc_handler_state/1]).
+         get_rpc_handler_state/1,
+         close_connection/1]).
 -export([start_link/3,
          ranch_init/1]).
 -export([init/1,
@@ -60,6 +61,10 @@ stop(Id) ->
 
 get_rpc_handler_state(Pid) ->
     gen_statem:call(Pid, get_rpc_handler_state).
+
+%% Close the server-side TCP socket, simulating Telegram rotating the connection.
+close_connection(Pid) ->
+    gen_statem:call(Pid, close_connection).
 
 %% Callbacks
 
@@ -159,6 +164,9 @@ on_tunnel(info, {tcp, _Sock, TcpData}, #t_state{codec = Codec0} = S) ->
     {keep_state, activate(S2#t_state{codec = Codec1})};
 on_tunnel({call, From}, get_rpc_handler_state, #t_state{rpc_handler_state = HSt}) ->
     {keep_state_and_data, [{reply, From, HSt}]};
+on_tunnel({call, From}, close_connection, #t_state{sock = Sock, transport = Transport}) ->
+    Transport:close(Sock),
+    {stop_and_reply, normal, [{reply, From, ok}]};
 on_tunnel(Type, Event, S) ->
     handle_event(Type, Event, ?FUNCTION_NAME, S).
 
