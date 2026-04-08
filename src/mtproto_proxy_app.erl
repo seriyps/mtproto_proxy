@@ -92,7 +92,7 @@ diff_env(NewEnv, OldEnv) ->
 
 
 %% @doc List of ranch listeners running mtproto_proxy
--spec mtp_listeners() -> [tuple()].
+-spec mtp_listeners() -> [{ranch:ref(), #{atom() => term()}}].
 mtp_listeners() ->
     maps:to_list(
       maps:filter(

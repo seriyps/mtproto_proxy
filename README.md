@@ -808,5 +808,5 @@ Helpers
 Number of connections
 
 ```bash
-/opt/mtp_proxy/bin/mtp_proxy eval 'lists:sum([proplists:get_value(all_connections, L) || {_, L} <- ranch:info()]).'
+/opt/mtp_proxy/bin/mtp_proxy eval 'lists:sum([maps:get(all_connections, L) || {_, L} <- maps:to_list(ranch:info())]).'
 ```

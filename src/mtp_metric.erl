@@ -98,7 +98,7 @@ passive_metrics() ->
     |
     [{gauge, [?APP, connections, count],
       "Count of ranch connections",
-      [{#{listener => H}, proplists:get_value(all_connections, P)}
+      [{#{listener => H}, maps:get(all_connections, P)}
        || {H, P} <- mtproto_proxy_app:mtp_listeners()]}] ].
 
 -spec active_metrics() -> [{metric_type(), metric_name(), metric_doc(), Opts}]
