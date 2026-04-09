@@ -180,7 +180,7 @@ handle_cast({close_ext, Down}, #state{down = Down, sock = USock, transport = UTr
     ?LOG_DEBUG("asked to close connection by downstream"),
     ok = UTrans:close(USock),
     {stop, normal, S#state{down = undefined}};
-handle_cast({migrate, OldDown}, #state{down = OldDown, dc_id = {_DcId, Pool},
+handle_cast({migrate, OldDown}, #state{down = OldDown, dc_id = {DcId, Pool},
                                        codec = Codec, addr = Addr,
                                        ad_tag = AdTag, listener = Listener} = S) ->
     {PacketLayerMod, _} = mtp_codec:info(packet, Codec),
@@ -190,12 +190,12 @@ handle_cast({migrate, OldDown}, #state{down = OldDown, dc_id = {_DcId, Pool},
             ?LOG_DEBUG("Migration failed (~p), closing client", [Reason]),
             true = is_atom(Reason),
             mtp_metric:count_inc([?APP, downstream_migration, total], 1,
-                                 #{labels => [Listener, Reason]}),
+                                 #{labels => [Listener, DcId, Reason]}),
             {stop, normal, S#state{down = undefined}};
         NewDown ->
             ?LOG_DEBUG("Migrated from ~p to ~p", [OldDown, NewDown]),
             mtp_metric:count_inc([?APP, downstream_migration, total], 1,
-                                 #{labels => [Listener, ok]}),
+                                 #{labels => [Listener, DcId, ok]}),
             {noreply, S#state{down = NewDown}}
     end;
 handle_cast({migrate, _StaleDown}, S) ->
@@ -639,7 +639,7 @@ up_send_raw(Data, #state{sock = Sock,
                       end
               end, #{labels => [Listener]}).
 
-down_send(Packet, #state{down = Down, listener = Listener} = S) ->
+down_send(Packet, #state{down = Down, listener = Listener, dc_id = Dc} = S) ->
     %% ?LOG_DEBUG(">Down: ~p", [Packet]),
     case mtp_down_conn:send(Down, Packet) of
         ok ->
@@ -649,8 +649,9 @@ down_send(Packet, #state{down = Down, listener = Listener} = S) ->
         {error, migrating} ->
             %% DC connection is closing; this packet was never sent to TG.
             %% Stop the handler so the client reconnects and resends.
+            {DcId, _} = Dc,
             mtp_metric:count_inc([?APP, downstream_migration, total], 1,
-                                 #{labels => [Listener, mid_send]}),
+                                 #{labels => [Listener, DcId, mid_send]}),
             throw({stop, normal, S})
     end.
 

@@ -192,5 +192,5 @@ active_metrics() ->
 
      {count, [?APP, downstream_migration, total],
       "Count of client migrations to a new downstream connection",
-      #{labels => [listener, result]}}
+      #{labels => [listener, dc_id, result]}}
     ].
