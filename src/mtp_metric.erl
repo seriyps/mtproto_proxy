@@ -188,5 +188,9 @@ active_metrics() ->
        }},
      {count, [?APP, upstream_send_error, total],
       "Count of tcp send errors to upstream",
-      #{labels => [listener, reason]}}
+      #{labels => [listener, reason]}},
+
+     {count, [?APP, downstream_migration, total],
+      "Count of client migrations to a new downstream connection",
+      #{labels => [listener, result]}}
     ].
