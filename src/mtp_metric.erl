@@ -77,29 +77,40 @@ get_backend() ->
       Labels :: #{atom() => binary() | atom()},
       Value :: integer() | float().
 passive_metrics() ->
-    DownStatus = mtp_config:status(),
-    [{gauge, [?APP, dc_num_downstreams],
-      "Count of connections to downstream",
-      [{#{dc => DcId}, NDowns}
-       || #{n_downstreams := NDowns, dc_id := DcId} <- DownStatus]},
-     {gauge, [?APP, dc_num_upstreams],
-      "Count of upstreams connected to DC",
-      [{#{dc => DcId}, NUps}
-       || #{n_upstreams := NUps, dc_id := DcId} <- DownStatus]},
-     {gauge, [?APP, dc_upstreams_per_downstream],
-      "Count of upstreams connected to DC",
-      lists:flatmap(
-        fun(#{min := Min,
-              max := Max,
-              dc_id := DcId}) ->
-                [{#{dc => DcId, meter => min}, Min},
-                 {#{dc => DcId, meter => max}, Max}]
-        end,  DownStatus)}
-    |
-    [{gauge, [?APP, connections, count],
-      "Count of ranch connections",
-      [{#{listener => H}, maps:get(all_connections, P)}
-       || {H, P} <- mtproto_proxy_app:mtp_listeners()]}] ].
+    Role = application:get_env(?APP, node_role, both),
+    DcGauges =
+        case Role of
+            front -> [];
+            _ ->
+                DownStatus = mtp_config:status(),
+                [{gauge, [?APP, dc_num_downstreams],
+                  "Count of connections to downstream",
+                  [{#{dc => DcId}, NDowns}
+                   || #{n_downstreams := NDowns, dc_id := DcId} <- DownStatus]},
+                 {gauge, [?APP, dc_num_upstreams],
+                  "Count of upstreams connected to DC",
+                  [{#{dc => DcId}, NUps}
+                   || #{n_upstreams := NUps, dc_id := DcId} <- DownStatus]},
+                 {gauge, [?APP, dc_upstreams_per_downstream],
+                  "Count of upstreams connected to DC",
+                  lists:flatmap(
+                    fun(#{min := Min,
+                          max := Max,
+                          dc_id := DcId}) ->
+                            [{#{dc => DcId, meter => min}, Min},
+                             {#{dc => DcId, meter => max}, Max}]
+                    end, DownStatus)}]
+        end,
+    RanchGauge =
+        case Role of
+            back -> [];
+            _ ->
+                [{gauge, [?APP, connections, count],
+                  "Count of ranch connections",
+                  [{#{listener => H}, maps:get(all_connections, P)}
+                   || {H, P} <- mtproto_proxy_app:mtp_listeners()]}]
+        end,
+    DcGauges ++ RanchGauge.
 
 -spec active_metrics() -> [{metric_type(), metric_name(), metric_doc(), Opts}]
                               when

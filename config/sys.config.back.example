@@ -1,0 +1,54 @@
+%% -*- mode: erlang -*-
+%%
+%% sys.config for the BACK node (foreign server).
+%%
+%% The back node runs DC pool connections to Telegram.
+%% It does NOT listen for client connections — that is done by the front node(s).
+%%
+%% Multiple front nodes can share one back node.
+%% Start the back node first so pools are ready when fronts connect.
+%%
+[
+ {mtproto_proxy,
+  [
+   %% This node is a back-end only.
+   {node_role, back},
+
+   %% No `ports' section — the back node does not accept client connections.
+
+   %% Telegram proxy secret (fetched from core.telegram.org).
+   %% Defaults are fine; override only if you need a custom URL.
+   %% {proxy_secret_url, "https://core.telegram.org/getProxySecret"},
+   %% {proxy_config_url, "https://core.telegram.org/getProxyConfig"},
+
+   %% The back node must know its external IP for Telegram's encryption.
+   %% Either set it explicitly or let ip_lookup_services resolve it.
+   %% {external_ip, "YOUR.BACK.NODE.EXTERNAL.IP"},
+   {ip_lookup_services,
+    ["http://ipv4.seriyps.com/",
+     "http://v4.ident.me/",
+     "http://ipv4.icanhazip.com/",
+     "https://digitalresistance.dog/myIp"]},
+
+   %% Multiplexing tuning (back node creates DC connections).
+   %% {init_dc_connections, 2},
+   %% {clients_per_dc_connection, 300}
+  ]},
+
+ {kernel,
+  [{logger_level, info},
+   {logger,
+    [{handler, default, logger_std_h,
+      #{level  => info,
+        config => #{type            => file,
+                    file            => "/var/log/mtproto-proxy/back.log",
+                    max_no_bytes    => 104857600,
+                    max_no_files    => 10,
+                    filesync_repeat_interval => no_repeat}}},
+     {handler, console, logger_std_h,
+      #{level  => critical,
+        config => #{type => standard_io}}}
+    ]}]},
+ {sasl,
+  [{errlog_type, error}]}
+].

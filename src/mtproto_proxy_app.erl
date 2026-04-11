@@ -35,7 +35,21 @@ start(_StartType, _StartArgs) ->
     report("+++++++++++++++++++++++++++++++++++++++~n"
            "🇺🇦 Stand with Ukraine! Glory to the heroes! 🇺🇦~n"
            "Erlang MTProto proxy by @seriyps https://github.com/seriyps/mtproto_proxy~n", []),
-    [start_proxy(Where) || Where <- application:get_env(?APP, ports, [])],
+    Role = node_role(),
+    case Role of
+        front ->
+            case application:get_env(?APP, back_node) of
+                {ok, BackNode} ->
+                    net_kernel:connect_node(BackNode);
+                undefined ->
+                    ?LOG_WARNING("node_role=front but back_node is not configured", [])
+            end;
+        _ -> ok
+    end,
+    case Role of
+        back -> ok;
+        _    -> [start_proxy(Where) || Where <- application:get_env(?APP, ports, [])]
+    end,
     Res.
 
 
@@ -50,9 +64,10 @@ stop(_State) ->
 
 config_change(Changed, New, Removed) ->
     %% app's env is already updated when this callback is called
-    ok = lists:foreach(fun(K) -> config_changed(removed, K, []) end, Removed),
-    ok = lists:foreach(fun({K, V}) -> config_changed(changed, K, V) end, Changed),
-    ok = lists:foreach(fun({K, V}) -> config_changed(new, K, V) end, New).
+    Role = node_role(),
+    ok = lists:foreach(fun(K) -> config_changed(removed, K, [], Role) end, Removed),
+    ok = lists:foreach(fun({K, V}) -> config_changed(changed, K, V, Role) end, Changed),
+    ok = lists:foreach(fun({K, V}) -> config_changed(new, K, V, Role) end, New).
 
 %%--------------------------------------------------------------------
 %% Other APIs
@@ -166,29 +181,36 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
 stop_proxy(#{name := Name}) ->
     ranch:stop_listener(Name).
 
-config_changed(_, ip_lookup_services, _) ->
+config_changed(_, ip_lookup_services, _, front) -> ok;
+config_changed(_, ip_lookup_services, _, _) ->
     mtp_config:update();
-config_changed(_, proxy_secret_url, _) ->
+config_changed(_, proxy_secret_url, _, front) -> ok;
+config_changed(_, proxy_secret_url, _, _) ->
     mtp_config:update();
-config_changed(_, proxy_config_url, _) ->
+config_changed(_, proxy_config_url, _, front) -> ok;
+config_changed(_, proxy_config_url, _, _) ->
     mtp_config:update();
-config_changed(Action, max_connections, N) when Action == new; Action == changed ->
+config_changed(Action, max_connections, _, back) when Action == new; Action == changed -> ok;
+config_changed(Action, max_connections, N, _) when Action == new; Action == changed ->
     (is_integer(N) and (N >= 0)) orelse error({"max_connections should be non_neg_integer", N}),
     lists:foreach(fun({Name, _}) ->
                           ranch:set_max_connections(Name, N)
                   end, mtp_listeners());
-config_changed(Action, downstream_socket_buffer_size, N) when Action == new; Action == changed ->
+config_changed(Action, downstream_socket_buffer_size, _, front) when Action == new; Action == changed -> ok;
+config_changed(Action, downstream_socket_buffer_size, N, _) when Action == new; Action == changed ->
     [{ok, _} = mtp_down_conn:set_config(Pid, downstream_socket_buffer_size, N)
      || Pid <- downstream_connections()],
     ok;
-config_changed(Action, downstream_backpressure, BpOpts) when Action == new; Action == changed ->
+config_changed(Action, downstream_backpressure, _, front) when Action == new; Action == changed -> ok;
+config_changed(Action, downstream_backpressure, BpOpts, _) when Action == new; Action == changed ->
     is_map(BpOpts) orelse error(invalid_downstream_backpressure),
     [{ok, _} = mtp_down_conn:set_config(Pid, downstream_backpressure, BpOpts)
      || Pid <- downstream_connections()],
     ok;
 %% Since upstream connections are mostly short-lived, live-update doesn't make much difference
-%% config_changed(Action, upstream_socket_buffer_size, N) when Action == new; Action == changed ->
-config_changed(Action, ports, Ports)  when Action == new; Action == changed ->
+%% config_changed(Action, upstream_socket_buffer_size, N, _) when Action == new; Action == changed ->
+config_changed(Action, ports, _, back) when Action == new; Action == changed -> ok;
+config_changed(Action, ports, Ports, _) when Action == new; Action == changed ->
     %% TODO: update secret or ad_tag without disconnect
     RanchPorts = ordsets:from_list(running_ports()),
     DefaultListenIp = #{listen_ip => application:get_env(?APP, listen_ip, "0.0.0.0")},
@@ -199,13 +221,16 @@ config_changed(Action, ports, Ports)  when Action == new; Action == changed ->
     lists:foreach(fun stop_proxy/1, ToStop),
     [{ok, _} = start_proxy(Conf) || Conf <- ToStart],
     ok;
-config_changed(Action, K, V) ->
+config_changed(Action, K, V, _) ->
     %% Most of the other config options are applied automatically without extra work
     ?LOG_INFO("Config ~p ~p to ~p ignored", [K, Action, V]),
     ok.
 
 downstream_connections() ->
     [Pid || {_, Pid, worker, [mtp_down_conn]} <- supervisor:which_children(mtp_down_conn_sup)].
+
+node_role() ->
+    application:get_env(?APP, node_role, both).
 
 
 build_urls(Host, Port, Secret, Protocols) ->

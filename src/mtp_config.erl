@@ -21,7 +21,8 @@
          get_secret/0,
          get_default_dc/0,
          status/0,
-         update/0]).
+         update/0,
+         backend_node/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -74,9 +75,20 @@ get_downstream_safe(DcId, Opts) ->
     end.
 
 get_downstream_pool(DcId) ->
-    try whereis(mtp_dc_pool:dc_to_pool_name(DcId)) of
-        undefined -> not_found;
-        Pid when is_pid(Pid) -> {ok, Pid}
+    try mtp_dc_pool:dc_to_pool_name(DcId) of
+        PoolName ->
+            case backend_node() of
+                local ->
+                    case whereis(PoolName) of
+                        undefined -> not_found;
+                        Pid when is_pid(Pid) -> {ok, Pid}
+                    end;
+                {remote, BackNode} ->
+                    case erpc:call(BackNode, erlang, whereis, [PoolName]) of
+                        undefined -> not_found;
+                        Pid when is_pid(Pid) -> {ok, {PoolName, BackNode}}
+                    end
+            end
     catch error:invalid_dc_id ->
             not_found
     end.
@@ -101,9 +113,14 @@ get_secret() ->
 
 -spec get_default_dc() -> dc_id() | undefined.
 get_default_dc() ->
-    case ets:lookup(?TAB, ?DEFAULT_DC_KEY) of
-        [{?DEFAULT_DC_KEY, DcId}] -> DcId;
-        [] -> undefined
+    case backend_node() of
+        local ->
+            case ets:lookup(?TAB, ?DEFAULT_DC_KEY) of
+                [{?DEFAULT_DC_KEY, DcId}] -> DcId;
+                [] -> undefined
+            end;
+        {remote, BackNode} ->
+            gen_server:call({?MODULE, BackNode}, get_default_dc)
     end.
 
 -spec status() -> [mtp_dc_pool:status()].
@@ -119,6 +136,16 @@ status() ->
 -spec update() -> ok.
 update() ->
     gen_server:cast(?MODULE, update).
+
+%% @doc Returns `local' when all pools run on this node (both/back role),
+%% or `{remote, Node}' when this is a front node pointing at a back node.
+-spec backend_node() -> local | {remote, node()}.
+backend_node() ->
+    case application:get_env(?APP, back_node, undefined) of
+        undefined             -> local;
+        Node when Node =:= node() -> local;
+        Node                  -> {remote, Node}
+    end.
 
 
 %%%===================================================================
@@ -138,6 +165,12 @@ init([]) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
+handle_call(get_default_dc, _From, #state{tab = Tab} = State) ->
+    DcId = case ets:lookup(Tab, ?DEFAULT_DC_KEY) of
+               [{?DEFAULT_DC_KEY, Id}] -> Id;
+               [] -> undefined
+           end,
+    {reply, DcId, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.

@@ -1,0 +1,44 @@
+## vm.args for the FRONT node (domestic server — accepts client connections).
+##
+## Replace 10.0.0.1 with the actual IP address of this (front) server.
+-name front@10.0.0.1
+
+## Cookie must be identical on both front and back nodes.
+## Generate with: openssl rand -hex 32
+-setcookie mtproto-proxy-cookie
+
+## Essential for >500 connections
++K true
++A 2
++SDio 2
+
+## -----------------------------------------------------------------------
+## Inter-server link security
+##
+## The front and back nodes communicate over Erlang distribution.
+## You MUST protect this link — it allows arbitrary code execution.
+## Choose ONE of the following options:
+##
+## Option A: Censorship-resistant tunnel (recommended if front is in Russia)
+##   - Russia blocks WireGuard and OpenVPN by DPI. Use a tunnel that blends
+##     in with normal traffic: Shadowsocks, VLESS/XRay, Hysteria2, etc.
+##   - Set up the tunnel between front and back servers and use the tunnel
+##     interface IP in -name above (e.g., front@10.8.0.1).
+##   - No extra Erlang config needed once the tunnel is up.
+##   - If front is NOT in a censored region, WireGuard/IPsec work fine too.
+##
+## Option B: TLS distribution (no tunnel required)
+##   - On back server: scripts/gen_dist_certs.sh init /etc/mtproto-proxy/dist
+##   - Run per front:  scripts/gen_dist_certs.sh add-node /etc/mtproto-proxy/dist front
+##   - Place ca.pem, front.pem, front.key in /etc/mtproto-proxy/dist/ here.
+##   - Deploy ssl_dist.front.conf as /etc/mtproto-proxy/dist/ssl_dist.conf
+##
+## -proto_dist inet_tls
+## -ssl_dist_optfile /etc/mtproto-proxy/dist/ssl_dist.conf
+##
+## Firewall: allow TCP on the distribution port (9199 below) only between
+## the front and back servers, never to the public internet.
+##
+## -kernel inet_dist_listen_min 9199
+## -kernel inet_dist_listen_max 9199
+## -----------------------------------------------------------------------

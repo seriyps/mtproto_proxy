@@ -1,0 +1,59 @@
+%% -*- mode: erlang -*-
+%%
+%% sys.config for the FRONT node (domestic server).
+%%
+%% The front node runs Ranch listeners and handles client connections.
+%% It does NOT connect to Telegram directly — all DC pool work is delegated
+%% to the back node via Erlang distribution.
+%%
+%% Start the BACK node first, then the front node.
+%%
+[
+ {mtproto_proxy,
+  [
+   %% This node is a front-end only.
+   {node_role, front},
+
+   %% Name of the back node. Must match -name in the back node's vm.args.
+   {back_node, 'back@10.0.0.2'},
+
+   %% Listener ports (same as single-node setup).
+   {ports,
+    [#{name      => mtp_handler_1,
+       listen_ip => "0.0.0.0",
+       port      => 443,
+       secret    => <<"d0d6e111bada5511fcce9584deadbeef">>,
+       tag       => <<"dcbe8f1493fa4cd9ab300891c0b5b326">>}
+    ]},
+
+   %% Session / replay protection lives on the front node.
+   {replay_check_session_storage, on},
+
+   %% Allowed protocols (front node enforces this during handshake).
+   {allowed_protocols, [mtp_fake_tls, mtp_secure]},
+
+   %% Connection policies (optional, evaluated on front).
+   %% {policy, [{max_connections, [client_ipv4], 3}]},
+
+   {init_timeout_sec,     60},
+   {hibernate_timeout_sec, 60},
+   {ready_timeout_sec,   1200}
+  ]},
+
+ {kernel,
+  [{logger_level, info},
+   {logger,
+    [{handler, default, logger_std_h,
+      #{level  => info,
+        config => #{type            => file,
+                    file            => "/var/log/mtproto-proxy/front.log",
+                    max_no_bytes    => 104857600,
+                    max_no_files    => 10,
+                    filesync_repeat_interval => no_repeat}}},
+     {handler, console, logger_std_h,
+      #{level  => critical,
+        config => #{type => standard_io}}}
+    ]}]},
+ {sasl,
+  [{errlog_type, error}]}
+].
