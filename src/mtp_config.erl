@@ -18,8 +18,8 @@
 -export([get_downstream_safe/2,
          get_downstream_pool/1,
          get_netloc/1,
-         get_netloc_safe/1,
          get_secret/0,
+         get_default_dc/0,
          status/0,
          update/0]).
 
@@ -37,6 +37,7 @@
 -define(TAB, ?MODULE).
 -define(IPS_KEY(DcId), {id, DcId}).
 -define(IDS_KEY, dc_ids).
+-define(DEFAULT_DC_KEY, default_dc).
 -define(SECRET_URL, "https://core.telegram.org/getProxySecret").
 -define(CONFIG_URL, "https://core.telegram.org/getProxyConfig").
 
@@ -65,9 +66,11 @@ get_downstream_safe(DcId, Opts) ->
                     error({pool_empty, DcId, Pool})
             end;
         not_found ->
-            [{?IDS_KEY, L}] = ets:lookup(?TAB, ?IDS_KEY),
-            NewDcId = random_choice(L),
-            get_downstream_safe(NewDcId, Opts)
+            case get_default_dc() of
+                undefined  -> error({no_pool, DcId});
+                DcId       -> error({no_pool, DcId});   % default == requested, avoid loop
+                NewDcId    -> get_downstream_safe(NewDcId, Opts)
+            end
     end.
 
 get_downstream_pool(DcId) ->
@@ -76,17 +79,6 @@ get_downstream_pool(DcId) ->
         Pid when is_pid(Pid) -> {ok, Pid}
     catch error:invalid_dc_id ->
             not_found
-    end.
-
--spec get_netloc_safe(dc_id()) -> {dc_id(), netloc()}.
-get_netloc_safe(DcId) ->
-    case get_netloc(DcId) of
-        {ok, Addr} -> {DcId, Addr};
-        not_found ->
-            [{?IDS_KEY, L}] = ets:lookup(?TAB, ?IDS_KEY),
-            NewDcId = random_choice(L),
-            %% Get random DC; it might return 0 and recurse aggain
-            get_netloc_safe(NewDcId)
     end.
 
 get_netloc(DcId) ->
@@ -106,6 +98,13 @@ get_netloc(DcId) ->
 get_secret() ->
     [{_, Key}] = ets:lookup(?TAB, key),
     Key.
+
+-spec get_default_dc() -> dc_id() | undefined.
+get_default_dc() ->
+    case ets:lookup(?TAB, ?DEFAULT_DC_KEY) of
+        [{?DEFAULT_DC_KEY, DcId}] -> DcId;
+        [] -> undefined
+    end.
 
 -spec status() -> [mtp_dc_pool:status()].
 status() ->
@@ -130,7 +129,7 @@ init([]) ->
               #{timeout => {env, ?APP, conf_refresh_interval, 3600},
                 unit => second}),
     Tab = ets:new(?TAB, [set,
-                         public,
+                         protected,
                          named_table,
                          {read_concurrency, true}]),
     State = #state{tab = Tab,
@@ -189,17 +188,23 @@ update_key(Tab) ->
 update_config(Tab) ->
     Url = application:get_env(mtproto_proxy, proxy_config_url, ?CONFIG_URL),
     {ok, Body} = http_get(Url),
-    Downstreams = parse_config(Body),
+    {DefaultDc, Downstreams} = parse_config(Body),
     update_downstreams(Downstreams, Tab),
-    update_ids(Downstreams, Tab).
+    update_ids(Downstreams, DefaultDc, Tab).
 
 parse_config(Body) ->
     Lines = string:lexemes(Body, "\n"),
-    ProxyLines = lists:filter(
-                   fun("proxy_for " ++ _) -> true;
-                      (_) -> false
-                   end, Lines),
-    [parse_downstream(Line) || Line <- ProxyLines].
+    {DefaultDc, Downstreams} =
+        lists:foldl(
+          fun("default " ++ _ = Line, {_, Ds}) ->
+                  ["default", DcIdStr] = string:lexemes(Line, " ;"),
+                  {list_to_integer(DcIdStr), Ds};
+             ("proxy_for " ++ _ = Line, {Def, Ds}) ->
+                  {Def, [parse_downstream(Line) | Ds]};
+             (_, Acc) ->
+                  Acc
+          end, {undefined, []}, Lines),
+    {DefaultDc, lists:reverse(Downstreams)}.
 
 parse_downstream(Line) ->
     ["proxy_for",
@@ -231,9 +236,10 @@ update_downstreams(Downstreams, Tab) ->
       end,
       maps:keys(ByDc)).
 
-update_ids(Downstreams, Tab) ->
+update_ids(Downstreams, DefaultDc, Tab) ->
     Ids = lists:usort([DcId || {DcId, _, _} <- Downstreams]),
-    true = ets:insert(Tab, {?IDS_KEY, Ids}).
+    true = ets:insert(Tab, {?IDS_KEY, Ids}),
+    true = ets:insert(Tab, {?DEFAULT_DC_KEY, DefaultDc}).
 
 update_ip() ->
     case application:get_env(?APP, ip_lookup_services) of
@@ -283,15 +289,22 @@ random_choice(L) ->
 -include_lib("eunit/include/eunit.hrl").
 
 parse_test() ->
-    Config = ("# force_probability 1 10
-proxy_for 1 149.154.175.50:8888;
-proxy_for -1 149.154.175.50:8888;
-proxy_for 2 149.154.162.39:80;
-proxy_for 2 149.154.162.33:80;"),
+    Config = ("# force_probability 1 10\n"
+              "default 2;\n"
+              "proxy_for 1 149.154.175.50:8888;\n"
+              "proxy_for -1 149.154.175.50:8888;\n"
+              "proxy_for 2 149.154.162.39:80;\n"
+              "proxy_for 2 149.154.162.33:80;"),
     Expect = [{1, {149, 154, 175, 50}, 8888},
               {-1, {149, 154, 175, 50}, 8888},
               {2, {149, 154, 162, 39}, 80},
               {2, {149, 154, 162, 33},80}],
-    ?assertEqual(Expect, parse_config(Config)).
+    ?assertEqual({2, Expect}, parse_config(Config)).
+
+parse_no_default_test() ->
+    Config = ("proxy_for 1 149.154.175.50:8888;\n"
+              "proxy_for 2 149.154.162.39:80;"),
+    {DefaultDc, _} = parse_config(Config),
+    ?assertEqual(undefined, DefaultDc).
 
 -endif.
