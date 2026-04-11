@@ -807,7 +807,7 @@ downstream_migration_case(Cfg) when is_list(Cfg) ->
         %% Wait until handler has successfully migrated to the surviving downstream.
         ok = mtp_test_metric:wait_for_value(
                count, [?APP, downstream_migration, total],
-               [?FUNCTION_NAME, ok], 1, 5000),
+               [?FUNCTION_NAME, DcId, ok], 1, 5000),
         %% Client must still work after migration.
         Cli2 = ping(Cli1),
         %% Pool tracking must be clean: exactly 1 upstream registered.
@@ -848,7 +848,7 @@ downstream_migration_multi_case(Cfg) when is_list(Cfg) ->
         %% Wait until exactly NOnServer clients have successfully migrated.
         ok = mtp_test_metric:wait_for_value(
                count, [?APP, downstream_migration, total],
-               [?FUNCTION_NAME, ok], NOnServer, 5000),
+               [?FUNCTION_NAME, DcId, ok], NOnServer, 5000),
         Clients2 = [ping(C) || C <- Clients1],
         ?assertMatch(#{n_upstreams := N}, mtp_dc_pool:status(Pool)),
         [ok = mtp_test_client:close(C) || C <- Clients2]
