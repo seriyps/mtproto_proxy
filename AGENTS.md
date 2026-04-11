@@ -29,49 +29,78 @@ Dockerfile        Docker image build
 | `mtp_secure`                                     | "Secure" randomized-packet-size protocol              |
 | `mtp_dc_pool` / `mtp_down_conn`                  | Pooled/multiplexed connections to Telegram DCs        |
 | `mtp_rpc`                                        | RPC framing protocol between proxy and Telegram       |
-| `mtp_config`                                     | Periodically fetches Telegram DC configuration        |
+| `mtp_config`                                     | Periodically fetches Telegram DC configuration; in split mode exposes `backend_node/0` and remote-aware `get_downstream_pool/1` / `get_default_dc/0` |
 | `mtp_policy` / `mtp_policy_table`                | Connection limit, blacklist, and whitelist rules      |
 | `mtp_codec` / `mtp_aes_cbc`                      | Codec pipeline (MTProto framing + AES-CBC encryption) |
 | `mtp_abridged` / `mtp_full` / `mtp_intermediate` | MTProto transport codec variants                      |
-| `mtp_metric`                                     | Metrics/telemetry                                     |
+| `mtp_metric`                                     | Metrics/telemetry; `passive_metrics/0` is role-aware  |
 | `mtp_session_storage`                            | Replay-attack protection (session deduplication)      |
+| `mtproto_proxy_sup`                              | Root supervisor; calls `children(Role)` — children differ by `node_role` |
+| `mtproto_proxy_app`                              | OTP application callback; `start/2` and `config_change/3` are role-gated |
 
 ### Process architecture
+
+**Role overview** — what starts in each `node_role`:
+
+```mermaid
+flowchart LR
+    subgraph BOTH["node_role=both  (single server, default)"]
+        direction TB
+        F0["Ranch listeners\nmtp_handler\nmtp_session_storage\nmtp_policy_*"]
+        B0["mtp_config\nmtp_dc_pool\nmtp_down_conn"]
+    end
+
+    subgraph SPLIT["Split mode  (two servers)"]
+        direction TB
+        subgraph FRONT["node_role=front  (domestic server)"]
+            F1["Ranch listeners\nmtp_handler\nmtp_session_storage\nmtp_policy_*"]
+        end
+        subgraph BACK["node_role=back  (foreign server)"]
+            B1["mtp_config\nmtp_dc_pool\nmtp_down_conn"]
+        end
+        FRONT -- "Erlang distribution\n(TLS or VPN tunnel)" --> BACK
+    end
+```
 
 ```
 OTP supervision tree
 ────────────────────────────────────────────────────────────────────
-mtproto_proxy_sup  (one_for_one)
- ├── mtp_config            (gen_server, singleton)
- ├── mtp_session_storage   (gen_server, singleton)
- ├── mtp_dc_pool_sup       (supervisor, simple_one_for_one)
- │    └── mtp_dc_pool      (gen_server, one per DC id, permanent)
- ├── mtp_down_conn_sup     (supervisor, simple_one_for_one)
- │    └── mtp_down_conn    (gen_server, one per Telegram TCP conn, temporary)
- └── Ranch listeners       (one per configured port: mtp_ipv4, mtp_ipv6, …)
-      └── mtp_handler      (gen_server, one per client TCP conn, transient)
+The supervisor is role-parameterised via the `node_role` config key
+(`front | back | both`, default `both`).  Each role starts a different
+subset of children:
 
+  node_role=both  (default — single server)
+  ├── mtp_config            (gen_server, singleton)
+  ├── mtp_session_storage   (gen_server, singleton)
+  ├── mtp_dc_pool_sup       (supervisor, simple_one_for_one)
+  │    └── mtp_dc_pool      (gen_server, one per DC id, permanent)
+  ├── mtp_down_conn_sup     (supervisor, simple_one_for_one)
+  │    └── mtp_down_conn    (gen_server, one per Telegram TCP conn, temporary)
+  └── Ranch listeners       (one per configured port: mtp_ipv4, mtp_ipv6, …)
+       └── mtp_handler      (gen_server, one per client TCP conn, transient)
 
-Data-plane message flow  (one client connection)
-────────────────────────────────────────────────────────────────────
+  node_role=front  (domestic server — accepts Telegram clients)
+  ├── mtp_session_storage
+  ├── mtp_policy_table
+  ├── mtp_policy_counter
+  └── Ranch listeners → mtp_handler
 
-  Telegram client                                  Telegram server
-       │                                                 │
-       │  TCP (fake-TLS / obfuscated / secure)           │
-       ▼                                                 ▼
- ┌─────────────┐   gen_server:call({send,Data})   ┌──────────────┐   raw TCP     ┌──────────────┐
- │ mtp_handler │ ──────────────────────────────►  │ mtp_down_conn│ ────────────► │  Telegram DC │
- │  (upstream) │                                  │ (downstream) │ ◄──────────── │ (middle srv) │
- │             │ ◄──────────────────────────────  │              │               └──────────────┘
- └──────┬──────┘    gen_server:cast({proxy_ans})  └──────────────┘
-        │
-        │  on first data: mtp_config:get_downstream_safe/2 → picks (pool, down_conn)
-        │  on disconnect: cast({return, self()}) → releases slot
-        ▼
- ┌─────────────┐
- │ mtp_dc_pool │  — spawns mtp_down_conn via mtp_down_conn_sup when pool is empty
- │  (per DC)   │
- └─────────────┘
+  node_role=back  (foreign server — connects to Telegram DCs)
+  ├── mtp_config
+  ├── mtp_dc_pool_sup → mtp_dc_pool
+  └── mtp_down_conn_sup → mtp_down_conn
+
+In split mode, the front node holds `back_node` in its config and
+addresses back-node processes as `{RegisteredName, BackNode}`.
+Multiple front nodes can share one back node.
+```
+
+**Data-plane message flow** — see [`doc/handler-downstream-flow.md`](doc/handler-downstream-flow.md)
+for the full sequence diagram (pool lookup, steady-state data exchange, connection release) and
+[`doc/migration-flow.md`](doc/migration-flow.md) for transparent DC connection rotation.
+Both diagrams show the front/back node boundary. In `both` mode all processes share the same
+node and there is no distribution overhead.
+
 
 > **Naming note:** the terms "upstream" and "downstream" in the current code are the
 > opposite of what one might expect:
@@ -80,12 +109,17 @@ Data-plane message flow  (one client connection)
 > This will be renamed in a future refactor.
 
 
-Key interactions
-────────────────────────────────────────────────────────────────────
+**Key interactions:**
+
+```
 mtp_handler  → mtp_config       : get_downstream_safe/2 — resolves DC id to
                                   a (pool_pid, down_conn_pid) pair on first
-                                  upstream data packet
-mtp_handler  → mtp_down_conn    : send/2 (sync call) — forward client data
+                                  upstream data packet.
+                                  In split mode returns {PoolName, BackNode};
+                                  uses erpc:call to check pool existence on
+                                  the back node.
+mtp_handler  → mtp_down_conn    : send/2 (sync call) — forward client data;
+                                  in split mode this is a cross-node gen_server call
 mtp_down_conn → mtp_handler     : cast {proxy_ans, …} — forward Telegram reply
 mtp_down_conn → mtp_handler     : cast {close_ext, …} — Telegram closed stream
 mtp_handler  → mtp_dc_pool      : return/2 (cast) — release slot on disconnect
@@ -147,9 +181,9 @@ There are three kinds of tests, each with a clear home:
 |------|-------|-------------|
 | **EUnit** (unit) | `src/*.erl`, `-ifdef(TEST)` blocks | Pure functions with no I/O: codec encode/decode round-trips, packet parsing helpers, crypto primitives |
 | **PropEr** (property-based) | `test/prop_mtp_<module>.erl` | Codec/parser properties that should hold for *arbitrary* inputs — e.g. encode→decode identity, parser accepts all valid inputs, parser never crashes on random bytes |
-| **Common Test** (integration) | `test/single_dc_SUITE.erl` | End-to-end behaviour involving a real listener + fake DC: protocol negotiation, policy enforcement, error handling visible at the TCP level (alerts sent, connections closed), domain fronting, replay protection |
+| **Common Test** (integration) | `test/single_dc_SUITE.erl`, `test/split_dc_SUITE.erl` | End-to-end behaviour involving a real listener + fake DC: protocol negotiation, policy enforcement, error handling visible at the TCP level (alerts sent, connections closed), domain fronting, replay protection. `split_dc_SUITE` tests the same paths in split mode (front/back on separate `peer` nodes). |
 
-**Rule of thumb:** if the behaviour is observable only over a TCP socket or requires a running application, it belongs in `single_dc_SUITE`. If it is a property of a pure function, add a PropEr property in the matching `prop_mtp_<module>.erl`. If it is a targeted unit case for a specific input, use EUnit.
+**Rule of thumb:** if the behaviour is observable only over a TCP socket or requires a running application, it belongs in `single_dc_SUITE`. If it requires two nodes communicating over Erlang distribution, it belongs in `split_dc_SUITE`. If it is a property of a pure function, add a PropEr property in the matching `prop_mtp_<module>.erl`. If it is a targeted unit case for a specific input, use EUnit.
 
 **What changes need new tests:**
 
@@ -198,6 +232,18 @@ Workflow:
 - Config lives in `config/prod-sys.config` (Erlang term format). Do **not** edit `src/mtproto_proxy.app.src` — it documents defaults only.
 - All configuration options are documented in `src/mtproto_proxy.app.src`.
 - Config can be reloaded without restart: `make update-sysconfig && systemctl reload mtproto-proxy`.
+
+### Split-mode config keys
+
+| Key | Node | Meaning |
+|-----|------|---------|
+| `node_role` | both | `front \| back \| both` (default `both` — single-server mode) |
+| `back_node` | front only | Atom name of the back node, e.g. `'back@10.0.0.2'` |
+| `external_ip` | back | Public IP of the back server (used in the RPC handshake AES key) |
+
+`mtp_config` is **not started on a front node** — never call `mtp_config:status()` or any
+`mtp_config` function from code that runs on a front node.  `get_downstream_safe/2` is the
+correct entry point; it is role-aware and dispatches remotely when needed.
 
 ## Debugging
 

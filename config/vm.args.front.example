@@ -28,17 +28,18 @@
 ##   - If front is NOT in a censored region, WireGuard/IPsec work fine too.
 ##
 ## Option B: TLS distribution (no tunnel required)
-##   - On back server: scripts/gen_dist_certs.sh init /etc/mtproto-proxy/dist
-##   - Run per front:  scripts/gen_dist_certs.sh add-node /etc/mtproto-proxy/dist front
+##   - On back server: `scripts/gen_dist_certs.sh init /etc/mtproto-proxy/dist`
+##   - Run per front:  `scripts/gen_dist_certs.sh add-node /etc/mtproto-proxy/dist front`
 ##   - Place ca.pem, front.pem, front.key in /etc/mtproto-proxy/dist/ here.
-##   - Deploy ssl_dist.front.conf as /etc/mtproto-proxy/dist/ssl_dist.conf
+##   - Place ssl_dist.front.conf in /etc/mtproto-proxy/dist/ on the front server.
+##   - Uncomment the lines below:
 ##
-## -proto_dist inet_tls
-## -ssl_dist_optfile /etc/mtproto-proxy/dist/ssl_dist.conf
+# -proto_dist inet_tls
+# -ssl_dist_optfile /etc/mtproto-proxy/dist/ssl_dist.front.conf
 ##
 ## Firewall: allow TCP on the distribution port (9199 below) only between
 ## the front and back servers, never to the public internet.
 ##
-## -kernel inet_dist_listen_min 9199
-## -kernel inet_dist_listen_max 9199
+# -kernel inet_dist_listen_min 9199
+# -kernel inet_dist_listen_max 9199
 ## -----------------------------------------------------------------------

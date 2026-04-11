@@ -30,15 +30,16 @@
 ## Option B: TLS distribution (no tunnel required)
 ##   - Generate certificates: scripts/gen_dist_certs.sh init /etc/mtproto-proxy/dist
 ##   - Place ca.pem, back.pem, back.key in /etc/mtproto-proxy/dist/
-##   - Deploy ssl_dist.back.conf as /etc/mtproto-proxy/dist/ssl_dist.conf
+##   - Place ssl_dist.back.conf in /etc/mtproto-proxy/dist/ on the back server.
 ##   - On each front node run: scripts/gen_dist_certs.sh add-node /etc/mtproto-proxy/dist front
+##   - Uncomment the lines below:
 ##
-## -proto_dist inet_tls
-## -ssl_dist_optfile /etc/mtproto-proxy/dist/ssl_dist.conf
+# -proto_dist inet_tls
+# -ssl_dist_optfile /etc/mtproto-proxy/dist/ssl_dist.back.conf
 ##
 ## Firewall: allow TCP on the distribution port (9199 below) only between
 ## the front and back servers, never to the public internet.
 ##
-## -kernel inet_dist_listen_min 9199
-## -kernel inet_dist_listen_max 9199
+# -kernel inet_dist_listen_min 9199
+# -kernel inet_dist_listen_max 9199
 ## -----------------------------------------------------------------------

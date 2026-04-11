@@ -11,13 +11,26 @@ surviving (or freshly-started) DC connection transparently.
 - `mtp_handler` — one process per connected Telegram client
 - `mtp_down_conn (new)` — replacement downstream spawned by the pool
 
+**Split-mode note:** in `front/back` split mode `mtp_handler` lives on the
+front node and `mtp_dc_pool` / `mtp_down_conn` live on the back node.  Every
+message in the diagram below that crosses the front↔back boundary (the
+`migrate` cast, `upstream_new` cast, `Pool->>Handler` reply, etc.) is carried
+transparently by Erlang distribution — no code changes are needed because
+Erlang PIDs and `gen_server` calls work across nodes unchanged.  Process
+monitors also fire on node disconnection, so a back-node restart causes all
+affected front-node handlers to exit cleanly.
+
 ```mermaid
 sequenceDiagram
     participant TG as Telegram
-    participant OldDown as mtp_down_conn (old)
-    participant Pool as mtp_dc_pool
-    participant Handler as mtp_handler
-    participant NewDown as mtp_down_conn (new)
+    box LightGreen "BACK node"
+        participant OldDown as mtp_down_conn (old)
+        participant Pool as mtp_dc_pool
+        participant NewDown as mtp_down_conn (new)
+    end
+    box LightBlue "FRONT node"
+        participant Handler as mtp_handler
+    end
 
     TG->>OldDown: TCP close
 
