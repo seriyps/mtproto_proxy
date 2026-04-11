@@ -38,7 +38,9 @@ init_per_suite(Cfg) ->
     {ok, _} = application:ensure_all_started(inets),
     {ok, _} = application:ensure_all_started(ranch),
     %% peer:start_link requires the current node to be distributed.
-    %% Start distribution if rebar3 ct didn't already do so.
+    %% Start EPMD daemon first (no-op if already running), then enable
+    %% distribution if rebar3 ct didn't already do so.
+    os:cmd("epmd -daemon"),
     Distributed =
         case net_kernel:start([split_dc_test, shortnames]) of
             {ok, _}                       -> true;

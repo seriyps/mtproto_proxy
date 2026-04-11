@@ -45,7 +45,7 @@ jobs:
         run: rebar3 eunit
 
       - name: ct
-        run: rebar3 ct
+        run: epmd -daemon && rebar3 ct
 
       - name: dialyzer
         run: rebar3 dialyzer
