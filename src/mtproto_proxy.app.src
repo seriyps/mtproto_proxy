@@ -155,7 +155,7 @@
         %% {proxy_secret_url, "https://core.telegram.org/getProxySecret"},
         %% {proxy_config_url, "https://core.telegram.org/getProxyConfig"},
         %% HTTP timeout (ms) for fetching proxy config/secret
-        {core_api_http_timeout_ms, 3000}
+        {core_api_http_timeout_ms, 3000},
 
         %% Upstream self-healthchecks tuning
         %% {upstream_healthchecks,
