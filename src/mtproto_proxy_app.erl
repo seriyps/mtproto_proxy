@@ -236,7 +236,7 @@ node_role() ->
 build_urls(Host, Port, Secret, Protocols) ->
     MkUrl = fun(ProtoSecret) ->
                     io_lib:format(
-                      "https://t.me/proxy?server=~s&port=~w&secret=~s",
+                      "tg://proxy?server=~s&port=~w&secret=~s",
                       [Host, Port, ProtoSecret])
             end,
     UrlTypes = lists:usort(
