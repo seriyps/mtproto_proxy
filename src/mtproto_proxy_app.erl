@@ -38,12 +38,7 @@ start(_StartType, _StartArgs) ->
     Role = node_role(),
     case Role of
         front ->
-            case application:get_env(?APP, back_node) of
-                {ok, BackNode} ->
-                    net_kernel:connect_node(BackNode);
-                undefined ->
-                    ?LOG_WARNING("node_role=front but back_node is not configured", [])
-            end;
+            maybe_connect_back_node();
         _ -> ok
     end,
     case Role of
@@ -181,6 +176,33 @@ start_proxy(#{name := Name, port := Port, secret := Secret, tag := Tag} = P) ->
 stop_proxy(#{name := Name}) ->
     ranch:stop_listener(Name).
 
+maybe_connect_back_node() ->
+    case application:get_env(?APP, back_node) of
+        {ok, BackNode} ->
+            connect_back_node(BackNode);
+        undefined ->
+            ?LOG_WARNING(
+               "node_role=front but back_node is not configured; set {back_node, 'back@HOST'} "
+               "in sys.config and start the back node first",
+               [])
+    end.
+
+connect_back_node(BackNode) ->
+    case net_kernel:connect_node(BackNode) of
+        true ->
+            ok;
+        false ->
+            ?LOG_WARNING(
+               "Failed to connect front node ~p to back node ~p; listeners will keep running "
+               "and the proxy will retry on demand. Check that the back node is running, "
+               "back_node matches the back vm.args -name, -setcookie matches on both nodes, "
+               "and TCP 4369 (epmd) plus the back vm.args -kernel inet_dist_listen_min/"
+               "inet_dist_listen_max port (for example 9299) are reachable between the two "
+               "servers; if you use a tunnel or TLS distribution, those settings must carry "
+               "this same Erlang distribution connection successfully",
+               [node(), BackNode])
+    end.
+
 config_changed(_, ip_lookup_services, _, front) -> ok;
 config_changed(_, ip_lookup_services, _, _) ->
     mtp_config:update();
@@ -190,6 +212,8 @@ config_changed(_, proxy_secret_url, _, _) ->
 config_changed(_, proxy_config_url, _, front) -> ok;
 config_changed(_, proxy_config_url, _, _) ->
     mtp_config:update();
+config_changed(Action, back_node, BackNode, front) when Action == new; Action == changed ->
+    connect_back_node(BackNode);
 config_changed(Action, max_connections, _, back) when Action == new; Action == changed -> ok;
 config_changed(Action, max_connections, N, _) when Action == new; Action == changed ->
     (is_integer(N) and (N >= 0)) orelse error({"max_connections should be non_neg_integer", N}),
