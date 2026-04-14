@@ -68,7 +68,7 @@
                 codec :: mtp_codec:codec() | undefined,
                 upstreams = #{} :: #{mtp_handler:handle() => upstream()},
                 upstreams_rev = #{} :: #{mtp_rpc:conn_id() => mtp_handler:handle()},
-                overflow_passive = false :: boolean(),
+                overflow_passive = undefined :: undefined | integer(),
                 non_ack_count = 0 :: non_neg_integer(),
                 non_ack_bytes = 0 :: non_neg_integer(),
                 backpressure_conf :: {
@@ -426,7 +426,7 @@ is_overflow(_) ->
     false.
 
 %% If we are not overflown and socket is passive, activate it
-activate_if_no_overflow(#state{overflow_passive = false, sock = Sock}) ->
+activate_if_no_overflow(#state{overflow_passive = undefined, sock = Sock}) ->
     ok = inet:setopts(Sock, [{active, once}]),
     true;
 activate_if_no_overflow(_) ->
@@ -450,7 +450,7 @@ handle_ack(Upstream, Count, Size, #state{non_ack_count = Cnt,
                                                      UpsOct - Size}}})
     end.
 
-maybe_deactivate(#state{overflow_passive = false, dc_id = Dc} = St) ->
+maybe_deactivate(#state{overflow_passive = undefined, dc_id = Dc} = St) ->
     case is_overflow(St) of
         false ->
             %% Was not overflow and still not
@@ -459,26 +459,34 @@ maybe_deactivate(#state{overflow_passive = false, dc_id = Dc} = St) ->
             %% Was not overflow, now overflowed
             mtp_metric:count_inc([?APP, down_backpressure, total], 1,
                                  #{labels => [Dc, Type]}),
-            St#state{overflow_passive = true}
+            St#state{overflow_passive = erlang:monotonic_time()}
     end;
 maybe_deactivate(St) ->
     St.
 
 %% Activate socket if we changed state from overflow to ok
-maybe_activate(#state{overflow_passive = true, sock = Sock, dc_id = Dc} = St) ->
+maybe_activate(#state{overflow_passive = OverflowSince, sock = Sock, dc_id = Dc} = St)
+  when is_integer(OverflowSince) ->
     case is_overflow(St) of
         false ->
             %% Was overflow, but now resolved
             ok = inet:setopts(Sock, [{active, once}]),
             mtp_metric:count_inc([?APP, down_backpressure, total], 1,
                                  #{labels => [Dc, off]}),
-            St#state{overflow_passive = false};
+            observe_overflow_passive(Dc, OverflowSince),
+            St#state{overflow_passive = undefined};
         _ ->
             %% Still overflow
             St
     end;
 maybe_activate(#state{} = St) ->
     St.
+
+observe_overflow_passive(Dc, OverflowSince) ->
+    mtp_metric:histogram_observe(
+      [?APP, down_backpressure_passive_duration, seconds],
+      erlang:monotonic_time() - OverflowSince,
+      #{labels => [Dc]}).
 
 %% Reset counters for upstream that was terminated
 non_ack_cleanup_upstream(Upstream, #state{non_ack_count = Cnt,

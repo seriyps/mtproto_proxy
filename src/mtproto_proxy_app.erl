@@ -231,6 +231,10 @@ config_changed(Action, downstream_backpressure, BpOpts, _) when Action == new; A
     [{ok, _} = mtp_down_conn:set_config(Pid, downstream_backpressure, BpOpts)
      || Pid <- downstream_connections()],
     ok;
+config_changed(Action, upstream_send_timeout_ms, TimeoutMs, _) when Action == new; Action == changed ->
+    (is_integer(TimeoutMs) andalso TimeoutMs >= 0) orelse
+        error({"upstream_send_timeout_ms should be non_neg_integer", TimeoutMs}),
+    ok;
 %% Since upstream connections are mostly short-lived, live-update doesn't make much difference
 %% config_changed(Action, upstream_socket_buffer_size, N, _) when Action == new; Action == changed ->
 config_changed(Action, ports, _, back) when Action == new; Action == changed -> ok;

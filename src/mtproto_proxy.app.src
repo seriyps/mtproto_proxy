@@ -145,6 +145,10 @@
         %% enough RAM
         %% {upstream_socket_buffer_size, 51200},   %50kb
         %% {downstream_socket_buffer_size, 512000},   %500kb
+        %% Timeout in milliseconds for proxy -> client socket sends.
+        %% Applies to new upstream connections accepted by mtp_handler.
+        %% Socket is closed on timeout. Default: 15000
+        %% {upstream_send_timeout_ms, 5000},
 
         %% Whether we should check CRC32 sum of packets encoded with mtp_full
         %% codec. Setting this to `false' decreases CPU usage. Default: true

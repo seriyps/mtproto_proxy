@@ -252,6 +252,14 @@ downstream_size_backpressure_case(Cfg) when is_list(Cfg) ->
        ok, mtp_test_metric:wait_for(
              count, [?APP, down_backpressure, total], [DcId, bytes_total],
              fun(V) -> is_integer(V) and (V > 0) end, 5000)),
+    ?assertEqual(
+       ok, mtp_test_metric:wait_for(
+             histogram, [?APP, down_backpressure_passive_duration, seconds], [DcId],
+             fun({Count, Total, Min, Max}) ->
+                     Count > 0 andalso Total >= Min andalso Max >= Min;
+                (_) ->
+                     false
+             end, 5000)),
     ok = mtp_test_client:close(Cli2),
     %% ct:pal("t->p ~p; p->c ~p; diff ~p",
     %%        [TgToProxy, ProxyToClient, TgToProxy - ProxyToClient]),
@@ -306,6 +314,14 @@ downstream_qlen_backpressure_case(Cfg) when is_list(Cfg) ->
        ok, mtp_test_metric:wait_for(
              count, [?APP, down_backpressure, total], [DcId, off],
              fun(V) -> is_integer(V) and (V > 0) end, 5000)),
+    ?assertEqual(
+       ok, mtp_test_metric:wait_for(
+             histogram, [?APP, down_backpressure_passive_duration, seconds], [DcId],
+             fun({Count, Total, Min, Max}) ->
+                     Count > 0 andalso Total >= Min andalso Max >= Min;
+                (_) ->
+                     false
+             end, 5000)),
     %% [{_, Pid, _, _}] = supervisor:which_children(mtp_down_conn_sup),
     %% ct:pal("Down conn state: ~p", [sys:get_state(Pid)]),
     %% ct:pal("Metric: ~p", [sys:get_state(mtp_test_metric)]),

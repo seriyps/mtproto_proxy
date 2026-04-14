@@ -26,6 +26,7 @@
 
 -define(MAX_SOCK_BUF_SIZE, 1024 * 50).    % Decrease if CPU is cheaper than RAM
 -define(MAX_UP_INIT_BUF_SIZE, 1024 * 1024).     %1mb
+-define(DEFAULT_UPSTREAM_SEND_TIMEOUT_MS, 15000).
 
 -define(HEALTH_CHECK_INTERVAL, 5000).
 % telegram server responds with "l\xfe\xff\xff" if client packet MTProto is invalid
@@ -92,19 +93,7 @@ ranch_init({Ref, Transport, Opts}) ->
     {ok, Socket} = ranch:handshake(Ref),
     case init({Socket, Transport, Opts}) of
         {ok, State} ->
-            BufSize = application:get_env(?APP, upstream_socket_buffer_size, ?MAX_SOCK_BUF_SIZE),
-            Linger = case application:get_env(?APP, reset_close_socket, off) of
-                         off -> [];
-                         _ ->
-                             [{linger, {true, 0}}]
-                     end,
-            ok = Transport:setopts(
-                   Socket,
-                   [{active, once},
-                    %% {recbuf, ?MAX_SOCK_BUF_SIZE},
-                    %% {sndbuf, ?MAX_SOCK_BUF_SIZE},
-                    {buffer, BufSize}
-                    | Linger]),
+            ok = Transport:setopts(Socket, accepted_socket_opts()),
             gen_server:enter_loop(?MODULE, [], State);
         {stop, error} ->
             exit(normal)
@@ -736,6 +725,27 @@ sum_binary(BinInfo) ->
     trunc(lists:foldl(fun({_, Size, RefC}, Sum) ->
                               Sum + (Size / RefC)
                       end, 0, BinInfo)).
+
+accepted_socket_opts() ->
+    BufSize = application:get_env(?APP, upstream_socket_buffer_size, ?MAX_SOCK_BUF_SIZE),
+    SendTimeout = application:get_env(?APP, upstream_send_timeout_ms,
+                                      ?DEFAULT_UPSTREAM_SEND_TIMEOUT_MS),
+    (is_integer(BufSize) andalso BufSize >= 512) orelse
+        error({invalid_upstream_socket_buffer_size, BufSize}),
+    (is_integer(SendTimeout) andalso SendTimeout >= 0) orelse
+        error({invalid_upstream_send_timeout_ms, SendTimeout}),
+    Linger = case application:get_env(?APP, reset_close_socket, off) of
+                 off -> [];
+                 _ ->
+                     [{linger, {true, 0}}]
+             end,
+    [{active, once},
+     %% {recbuf, ?MAX_SOCK_BUF_SIZE},
+     %% {sndbuf, ?MAX_SOCK_BUF_SIZE},
+     {buffer, BufSize},
+     {send_timeout, SendTimeout},
+     {send_timeout_close, true}
+     | Linger].
 
 -if(?OTP_RELEASE >= 26).
 hex(Bin) -> binary:encode_hex(Bin, lowercase).
