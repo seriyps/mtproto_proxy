@@ -15,10 +15,8 @@
          encode_packet/2
         ]).
 -export([bin_rev/1]).
--ifdef(TEST).
 -export([client_create/3,
          client_create/4]).
--endif.
 
 -export_type([codec/0]).
 
@@ -34,7 +32,6 @@
 
 -opaque codec() :: #st{}.
 
--ifdef(TEST).
 client_create(Secret, Protocol, DcId) ->
     client_create(crypto:strong_rand_bytes(58),
                   Secret, Protocol, DcId).
@@ -54,8 +51,8 @@ client_create(Seed, HexSecret, Protocol, DcId) when byte_size(HexSecret) == 32 -
     client_create(Seed, mtp_handler:unhex(HexSecret), Protocol, DcId);
 client_create(Seed, Secret, Protocol, DcId) when byte_size(Seed) == 58,
                                           byte_size(Secret) == 16,
-                                          DcId > -10,
-                                          DcId < 10,
+                                          DcId >= -32768,
+                                          DcId =< 32767,
                                           is_atom(Protocol) ->
     <<L:56/binary, R:2/binary>> = Seed,
     ProtocolBin = encode_protocol(Protocol),
@@ -92,7 +89,6 @@ encode_protocol(mtp_secure) ->
 %% 4byte
 encode_dc_id(DcId) ->
     <<DcId:16/signed-little-integer>>.
--endif.
 
 %% @doc creates new obfuscated stream (MTProto proxy format)
 -spec from_header(binary(), binary()) -> {ok, integer(), mtp_codec:packet_codec(), codec()}

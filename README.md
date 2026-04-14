@@ -992,3 +992,78 @@ mtp_config:status().
 If you used a fixed dist port in `vm.args` (`inet_dist_listen_min/max 9199`),
 only port 9199 needs to be open; otherwise allow the full 9199–9254 range plus
 EPMD (4369).  **Never expose the distribution port to the public internet.**
+
+## mtp_ping — proxy connectivity checker
+
+`mtp_ping` is a standalone command line tool that measures connectivity and latency through
+a Telegram MTProto proxy to each Telegram DC. It uses the same `req_pq`/`res_pq` handshake
+that real Telegram clients use, so it measures the full client→proxy→DC round-trip, not
+just reachability of the proxy itself.
+
+### Build
+
+```bash
+./rebar3 escriptize
+# escript is placed at _build/default/bin/mtp_ping
+```
+
+> **Note:** `mtp_ping` is an Erlang escript, not a standalone binary.
+> Erlang/OTP 25+ must be installed on the machine where it is run.
+
+### Usage
+
+```
+./_build/default/bin/mtp_ping [OPTIONS] <proxy-url>
+```
+
+Accepts any standard Telegram proxy link (`tg://proxy?…` or `https://t.me/proxy?…`)
+in all secret formats:
+
+| Format | Secret example |
+|--------|----------------|
+| Normal | `6c0fc115f28307e3510041fffcaef3bc` |
+| Secure (`dd`) | `dd6c0fc115f28307e3510041fffcaef3bc` |
+| Fake-TLS hex (`ee`) | `ee6c0fc115f28307e3510041fffcaef3bc67707472752e70726f` |
+| Fake-TLS base64 | `7mwPwRXygwfjUQBB__yu87xncHRydS5wcm8=` |
+
+Options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--dc ID,...` | `-5…-1,1…5` | DC IDs to test. Current valid IDs: https://core.telegram.org/getProxyConfig |
+| `--proto P,...` | from URL | Protocols: `normal`, `secure`, `fake-tls` |
+| `--timeout MS` | `5000` | Per-attempt TCP timeout (ms) |
+| `--repeat N` | `1` | Repeat each ping N times and show averages |
+| `--verbose` / `-v` | off | Print full error stacktraces |
+
+### Example
+
+```
+$ ./_build/default/bin/mtp_ping --proto fake-tls --dc 1,2,3 --repeat 3 \
+    "https://t.me/proxy?server=tg.example.com&port=443&secret=ee..."
+
+Proxy   : tg.example.com:443
+Testing : 1 protocol(s) x 3 DC(s), timeout=5000ms, showing avg over 3 repeats
+
+  fake-tls   DC +1  :  tcp=45ms  handshake=52ms  ping=140ms  [total=237ms]  OK
+  fake-tls   DC +2  :  tcp=48ms  handshake=54ms  ping=155ms  [total=257ms]  OK
+  fake-tls   DC +3  :  tcp=46ms  handshake=51ms  ping=148ms  [total=245ms]  OK
+
+=== Summary ===
+
+Protocols:
+  fake-tls   OK       (3/3 DCs)
+
+Avg timings per DC (across 1 working protocol(s)):
+DC    TCP(ms)   Handshake(ms)  Ping(ms)   Total(ms)
+--------------------------------------------------
++1    45        52             140        237
++2    48        54             155        257
++3    46        51             148        245
+```
+
+The summary shows:
+- **Protocols** — whether each protocol got at least one successful ping (OK) or all
+  attempts failed (DISABLED), with the DC success ratio.
+- **Avg timings per DC** — average TCP connect / TLS handshake / MTProto `req_pq` round-trip
+  and total time, averaged over all protocols and repeats.

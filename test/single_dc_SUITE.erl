@@ -160,8 +160,8 @@ echo_tls_long_hello_case(Cfg) when is_list(Cfg) ->
     Host = ?config(mtp_host, Cfg),
     Port = ?config(mtp_port, Cfg),
     Secret = ?config(mtp_secret, Cfg),
-    %% Test with 2000-byte ClientHello (newer Telegram clients send longer packets)
-    Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, {mtp_fake_tls, <<"example.com">>, 2000}),
+    %% Modern ClientHello is naturally ~1776 bytes; no need to specify a custom size
+    Cli0 = mtp_test_client:connect(Host, Port, Secret, DcId, {mtp_fake_tls, <<"example.com">>}),
     Cli1 = ping(Cli0),
     ?assertEqual(
        1, mtp_test_metric:get_tags(

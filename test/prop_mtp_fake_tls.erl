@@ -67,21 +67,18 @@ decode_stream(BinStream, Codec, Acc) ->
 
 
 prop_variable_length_hello(doc) ->
-    "Tests that ClientHello with various packet lengths can be parsed correctly".
+    "Tests that ClientHello generated with various secrets/domains can be parsed correctly".
 
 prop_variable_length_hello() ->
-    ?FORALL({TlsPacketLen, Secret, Domain},
-            {proper_types:integer(512, 4096),
-             proper_types:binary(16),
+    ?FORALL({Secret, Domain},
+            {proper_types:binary(16),
              <<"example.com">>},
-            variable_length_hello(TlsPacketLen, Secret, Domain)).
+            variable_length_hello(Secret, Domain)).
 
-variable_length_hello(TlsPacketLen, Secret, Domain) ->
+variable_length_hello(Secret, Domain) ->
     Timestamp = erlang:system_time(second),
     SessionId = crypto:strong_rand_bytes(32),
-    ClientHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, Secret, Domain, TlsPacketLen),
-    %% Verify packet has correct length
-    ?assertEqual(5 + TlsPacketLen, byte_size(ClientHello)),
+    ClientHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, Secret, Domain),
     %% Verify handshake can be parsed
     {ok, _Response, Meta, _Codec} = mtp_fake_tls:from_client_hello(ClientHello, Secret),
     %% Verify metadata
@@ -95,22 +92,21 @@ prop_parse_sni_valid(doc) ->
     "parse_sni/1 returns {ok, Domain} for any valid ClientHello with SNI".
 
 prop_parse_sni_valid() ->
-    ?FORALL({TlsPacketLen, Secret, Domain},
-            {proper_types:integer(512, 4096),
-             proper_types:binary(16),
+    ?FORALL({Secret, Domain},
+            {proper_types:binary(16),
              <<"example.com">>},
-            parse_sni_valid(TlsPacketLen, Secret, Domain)).
+            parse_sni_valid(Secret, Domain)).
 
-parse_sni_valid(TlsPacketLen, Secret, Domain) ->
+parse_sni_valid(Secret, Domain) ->
     Timestamp = erlang:system_time(second),
     SessionId = crypto:strong_rand_bytes(32),
     %% Build a ClientHello with a WRONG secret so from_client_hello/2 would throw
     WrongSecret = crypto:strong_rand_bytes(16),
-    ClientHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, WrongSecret, Domain, TlsPacketLen),
+    ClientHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, WrongSecret, Domain),
     %% parse_sni/1 must still extract the domain regardless of the secret
     ?assertEqual({ok, Domain}, mtp_fake_tls:parse_sni(ClientHello)),
     %% Also works on a correctly-signed hello
-    ValidHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, Secret, Domain, TlsPacketLen),
+    ValidHello = mtp_fake_tls:make_client_hello(Timestamp, SessionId, Secret, Domain),
     ?assertEqual({ok, Domain}, mtp_fake_tls:parse_sni(ValidHello)),
     true.
 

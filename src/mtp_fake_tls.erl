@@ -21,13 +21,9 @@
          try_decode_packet/2,
          decode_all/2,
          encode_packet/2]).
--ifdef(TEST).
 -export([make_client_hello/2,
-         make_client_hello/3,
          make_client_hello/4,
-         make_client_hello/5,
          parse_server_hello/1]).
--endif.
 
 -export_type([codec/0, meta/0]).
 
@@ -294,63 +290,159 @@ make_srv_hello(Digest, SessionId, {KeyShareGroup, KeyShareKey}) ->
                    | Extensions],
     [<<?TLS_TAG_SRV_HELLO, (iolist_size(Payload)):?u24>> | Payload].
 
--ifdef(TEST).
-%% Generate Fake-TLS "ClientHello". Used for tests only.
+%% Generate Fake-TLS "ClientHello".
 make_client_hello(Secret, SniDomain) ->
     make_client_hello(erlang:system_time(second),
                       crypto:strong_rand_bytes(32),
                       Secret, SniDomain).
 
-%% Generate Fake-TLS "ClientHello" with custom TLS packet length. Used for tests only.
-make_client_hello(Secret, SniDomain, TlsPacketLen) ->
-    make_client_hello(erlang:system_time(second),
-                      crypto:strong_rand_bytes(32),
-                      Secret, SniDomain, TlsPacketLen).
-
 make_client_hello(Timestamp, SessionId, HexSecret, SniDomain) when byte_size(HexSecret) == 32 ->
     make_client_hello(Timestamp, SessionId, mtp_handler:unhex(HexSecret), SniDomain);
 make_client_hello(Timestamp, SessionId, Secret, SniDomain) when byte_size(SessionId) == 32,
                                                                 byte_size(Secret) == 16 ->
-    make_client_hello(Timestamp, SessionId, Secret, SniDomain, 512).
+    %% Modern ClientHello following tdesktop b72deb1 + tdlib d0de8a7.
+    %% Variable length (no fixed padding); proxy only validates the HMAC in Random.
+    GREASE = <<16#ea, 16#ea>>,
 
-%% @doc Generate ClientHello with custom TLS packet length (for testing variable-length support)
-make_client_hello(Timestamp, SessionId, HexSecret, SniDomain, TlsPacketLen) when byte_size(HexSecret) == 32 ->
-    make_client_hello(Timestamp, SessionId, mtp_handler:unhex(HexSecret), SniDomain, TlsPacketLen);
-make_client_hello(Timestamp, SessionId, Secret, SniDomain, TlsPacketLen) when byte_size(SessionId) == 32,
-                                                                               byte_size(Secret) == 16,
-                                                                               TlsPacketLen >= 512 ->
-    %% Wireshark capture from Telegram Desktop
+    %% Cipher suites: GREASE + 15 standard suites (TLS_RSA_WITH_3DES removed)
     CipherSuites =
-        mtp_handler:unhex(<<"eaea130113021303c02bc02fc02cc030cca9cca8c013c014009c009d002f0035000a">>),
-    CSLen = byte_size(CipherSuites),
+        <<GREASE/binary,
+          16#13, 16#01,   % TLS_AES_128_GCM_SHA256
+          16#13, 16#02,   % TLS_AES_256_GCM_SHA384
+          16#13, 16#03,   % TLS_CHACHA20_POLY1305_SHA256
+          16#c0, 16#2b,   % ECDHE_ECDSA_AES128_GCM_SHA256
+          16#c0, 16#2f,   % ECDHE_RSA_AES128_GCM_SHA256
+          16#c0, 16#2c,   % ECDHE_ECDSA_AES256_GCM_SHA384
+          16#c0, 16#30,   % ECDHE_RSA_AES256_GCM_SHA384
+          16#cc, 16#a9,   % ECDHE_ECDSA_CHACHA20_POLY1305
+          16#cc, 16#a8,   % ECDHE_RSA_CHACHA20_POLY1305
+          16#c0, 16#13,   % ECDHE_RSA_AES128_CBC_SHA
+          16#c0, 16#14,   % ECDHE_RSA_AES256_CBC_SHA
+          16#00, 16#9c,   % RSA_AES128_GCM_SHA256
+          16#00, 16#9d,   % RSA_AES256_GCM_SHA384
+          16#00, 16#2f,   % RSA_AES128_CBC_SHA
+          16#00, 16#35>>, % RSA_AES256_CBC_SHA
 
     SNI = make_sni([SniDomain]),
-    %% Wireshark capture from Telegram Desktop
-    KeyShare =
-        mtp_handler:unhex(
-          <<"0033002b00295a5a000100001d0020a4146c3e8573565bb5f5c877a88a98dcbbd46a9b3ca1ab3df7217cc33b4b6d2c">>),
-    SupportedVersions =
-        mtp_handler:unhex(<<"002b000b0a1a1a0304030303020301">>),
-    %% Calculate extensions length based on desired TLS packet length
-    %% TLS Frame = Type(1) + Version(2) + Length(2) + Payload
-    %% Payload = Hello(1) + HelloLen(3) + Version(2) + Random(32) + SessIdLen(1) + SessId
-    %%         + CSLen(2) + CS + CompMethodsLen(1) + CompMethods(1) + ExtLen(2) + Extensions
-    %% TlsPacketLen = Payload size (everything after the Length field)
-    HelloLen = TlsPacketLen - 4,  % Subtract Hello(1) + HelloLen(3) = 4
-    ExtLen = TlsPacketLen - (1 + 3 + 2 + 32 + 1 + byte_size(SessionId) + 2 + CSLen + 1 + 1 + 2),
-    RealExtensions = <<KeyShare/binary, SupportedVersions/binary, SNI/binary>>,
-    Extensions = add_padding_ext(RealExtensions, ExtLen),
-    (ExtLen == byte_size(Extensions)) orelse error({bad_ext_len, byte_size(Extensions), ExtLen}),
 
-    SessIdLen = byte_size(SessionId),
+    SigAlgos =
+        <<16#00, 16#0d,   % signature_algorithms
+          16#00, 16#20,   % ext length 32 (2 list-len + 30 entries)
+          16#00, 16#1e,   % sig-algo list length 30 (15 algos × 2)
+          16#04, 16#03,   % ecdsa_secp256r1_sha256
+          16#05, 16#03,   % ecdsa_secp384r1_sha384
+          16#06, 16#03,   % ecdsa_secp521r1_sha512
+          16#02, 16#03,   % ecdsa_sha1
+          16#08, 16#04,   % rsa_pss_rsae_sha256
+          16#08, 16#05,   % rsa_pss_rsae_sha384
+          16#08, 16#06,   % rsa_pss_rsae_sha512
+          16#04, 16#01,   % rsa_pkcs1_sha256
+          16#05, 16#01,   % rsa_pkcs1_sha384
+          16#06, 16#01,   % rsa_pkcs1_sha512
+          16#02, 16#01,   % rsa_pkcs1_sha1
+          16#04, 16#02,
+          16#03, 16#02,
+          16#02, 16#02,
+          16#03, 16#01>>,
+
+    %% supported_groups: added X25519MLKEM768 (0x11ec), per tdesktop b72deb1
+    SupportedGroups =
+        <<16#00, 16#0a,   % supported_groups
+          16#00, 16#0c,   % ext length 12 (2 list-len + 10 entries)
+          16#00, 16#0a,   % named-group list length 10 (5 groups × 2)
+          GREASE/binary,  % GREASE named group
+          16#11, 16#ec,   % X25519MLKEM768 (new)
+          16#00, 16#1d,   % x25519
+          16#00, 16#17,   % secp256r1
+          16#00, 16#18>>, % secp384r1
+
+    SupportedVersions =
+        <<16#00, 16#2b,   % supported_versions
+          16#00, 16#07,   % ext length 7 (1 list-len + 6 bytes)
+          16#06,          % version list length 6 (3 versions × 2)
+          GREASE/binary,  % GREASE version
+          16#03, 16#04,   % TLS 1.3
+          16#03, 16#03>>, % TLS 1.2 (TG does not offer TLS 1.1 / TLS 1.0)
+
+    %% key_share: GREASE + X25519MLKEM768 (1184+32 bytes) + standalone X25519 (32 bytes)
+    %% The proxy and server-side make_key_share/1 will pick the standalone X25519 entry.
+    %% ML-KEM-768 public key: 1184 random bytes (proxy does not validate key material)
+    MlKem768Key = crypto:strong_rand_bytes(1184),
+    KSKey1 = crypto:strong_rand_bytes(32),  % X25519 component of the hybrid entry
+    KSKey2 = crypto:strong_rand_bytes(32),  % standalone X25519 key (picked by proxy)
+    KeyShareEntries =
+        <<GREASE/binary, 16#00, 16#01, 16#00,      % GREASE: group + key_len=1 + 0x00
+          16#11, 16#ec, 16#04, 16#c0,               % X25519MLKEM768: group + key_len=1216
+          MlKem768Key/binary,                        % ML-KEM-768 public key (1184 bytes)
+          KSKey1/binary,                             % X25519 component (32 bytes)
+          16#00, 16#1d, 16#00, 16#20,               % x25519: group + key_len=32
+          KSKey2/binary>>,                           % standalone X25519 public key
+    KSListLen = byte_size(KeyShareEntries),          % 5 + 1220 + 36 = 1261
+    KeyShare =
+        <<16#00, 16#33,        % key_share
+          (KSListLen + 2):?u16, % ext length = list-len field (2) + entries
+          KSListLen:?u16,
+          KeyShareEntries/binary>>,
+
+    %% Encrypted Client Hello outer (0xfe0d), per tdlib d0de8a7
+    %% (previously 0xfe02; the \x00\x20 + 32-byte field was also extended from 20 to 32 bytes)
+    EchRand1   = crypto:strong_rand_bytes(1),
+    EchRand32  = crypto:strong_rand_bytes(32),
+    EchPayload = crypto:strong_rand_bytes(176),       % fixed choice from {144,176,208,240}
+    EchContent =
+        <<16#00, 16#00, 16#01, 16#00, 16#01,          % fixed ECH outer header
+          EchRand1/binary,                             % 1 random byte
+          16#00, 16#20,
+          EchRand32/binary,                            % 32 random bytes
+          (byte_size(EchPayload)):?u16,
+          EchPayload/binary>>,
+    ECH =
+        <<16#fe, 16#0d,                               % ech_outer_extensions (0xfe0d)
+          (byte_size(EchContent)):?u16,
+          EchContent/binary>>,
+
+    Extensions =
+        [<<GREASE/binary, 0:16>>,                     % leading GREASE extension (empty)
+         <<16#00, 16#17, 0:16>>,                      % extended_master_secret (empty)
+         ECH,                                         % encrypted_client_hello (0xfe0d) — position 3 like TG
+         <<16#00, 16#23, 0:16>>,                      % session_ticket (empty)
+         <<16#00, 16#0b, 16#00, 16#02, 16#01, 16#00>>, % ec_point_formats: uncompressed
+         <<16#44, 16#cd, 16#00, 16#05,                % application_layer_protocol_settings
+           16#00, 16#03, 16#02, $h, $2>>,             %   (type updated 0x4469→0x44cd in b72deb1)
+         KeyShare,                                    % key_share (0x0033)
+         <<16#00, 16#12, 0:16>>,                      % signed_certificate_timestamp (empty)
+         SupportedGroups,                             % supported_groups (0x000a)
+         <<16#00, 16#1b, 16#00, 16#03,                % compress_certificate
+           16#02, 16#00, 16#02>>,                     %   algorithms_len(1)=2, brotli(2)
+         <<16#ff, 16#01, 16#00, 16#01, 16#00>>,       % renegotiation_info (empty)
+         SigAlgos,                                    % signature_algorithms (0x000d)
+         <<16#00, 16#05, 16#00, 16#05,                % status_request (OCSP)
+           16#01, 0:32>>,                              %   type=ocsp(1) + empty responder list(2) + empty exts(2)
+         <<16#00, 16#2d, 16#00, 16#02, 16#01, 16#01>>, % psk_key_exchange_modes: psk_dhe_ke
+         <<16#00, 16#10, 16#00, 16#0e,                % application_layer_protocol_negotiation
+           16#00, 16#0c,                               %   protocol list length 12
+           16#02, $h, $2,                              %   "h2"
+           16#08, $h, $t, $t, $p, $/, $1, $., $1>>,  %   "http/1.1"
+         SNI,                                         % server_name (0x0000) — near end like TG
+         SupportedVersions,                           % supported_versions (0x002b)
+         <<GREASE/binary, 16#00, 16#01, 16#00>>],     % trailing GREASE extension
+
+    ExtBin = iolist_to_binary(Extensions),
+    CSLen = byte_size(CipherSuites),
+    SessIdLen = byte_size(SessionId),  % always 32
+    ExtLen = byte_size(ExtBin),
+    %% HelloBodyLen: TLS version(2) + Random(32) + SessIdLen(1) + SessId + CSLen(2) + CS
+    %%             + CompMethodsLen(1) + CompMethod(1) + ExtLen(2) + Extensions
+    HelloBodyLen = 2 + 32 + 1 + SessIdLen + 2 + CSLen + 1 + 1 + 2 + ExtLen,
+    TlsLen = HelloBodyLen + 4,  % +4 for handshake type(1) + handshake length(3)
     Pack = fun(FakeRandom) ->
-                   <<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, TlsPacketLen:?u16,
-                     ?TLS_TAG_CLI_HELLO, HelloLen:?u24, ?TLS_12_VERSION,
+                   <<?TLS_REC_HANDSHAKE, ?TLS_10_VERSION, TlsLen:?u16,
+                     ?TLS_TAG_CLI_HELLO, HelloBodyLen:?u24, ?TLS_12_VERSION,
                      FakeRandom:?DIGEST_LEN/binary,
-                     SessIdLen, SessionId:SessIdLen/binary,
-                     CSLen:?u16, CipherSuites:CSLen/binary,
-                     1, 0,                                        %Compression methods
-                     ExtLen:?u16, Extensions:ExtLen/binary>>
+                     SessIdLen, SessionId/binary,
+                     CSLen:?u16, CipherSuites/binary,
+                     1, 0,               % 1 compression method: null(0)
+                     ExtLen:?u16, ExtBin/binary>>
            end,
     FakeRandom0 = binary:copy(<<0>>, ?DIGEST_LEN),
     Hello0 = Pack(FakeRandom0),
@@ -365,24 +457,37 @@ make_sni(Domains) ->
     ItemsLen = byte_size(SniListItems),
     <<?EXT_SNI:?u16, (ItemsLen + 2):?u16, ItemsLen:?u16, SniListItems/binary>>.
 
-add_padding_ext(RealExtensions, ExtLen) ->
-    RealExtLen = byte_size(RealExtensions),
-    PadSize = ExtLen - RealExtLen - 4,
-    PaddingExt = <<21:?u16,                          %EXT_PADDING
-                   PadSize:?u16,
-                   (binary:copy(<<0>>, PadSize))/binary>>,
-    <<RealExtensions/binary, PaddingExt/binary>>.
-
-%% Parses "ServerHello" (the one produced by from_client_hello/2). Used for tests only.
+%% Parses "ServerHello" (the one produced by from_client_hello/2).
 parse_server_hello(<<?TLS_REC_HANDSHAKE, ?TLS_12_VERSION, HSLen:?u16, Handshake:HSLen/binary,
                      ?TLS_REC_CHANGE_CIPHER, ?TLS_12_VERSION, CCLen:?u16, ChangeCipher:CCLen/binary,
                      ?TLS_REC_DATA, ?TLS_12_VERSION, DLen:?u16, Data:DLen/binary,
                      Tail/binary>>) ->
     {Handshake, ChangeCipher, Data, Tail};
-parse_server_hello(B) when byte_size(B) < (512 + 5) ->
-    incomplete.
+parse_server_hello(B) when byte_size(B) < 5 ->
+    incomplete;
+parse_server_hello(<<16#16, _/binary>> = B) ->
+    %% TLS handshake record: could be proxy ServerHello still arriving in fragments,
+    %% or domain forwarding. Wait until all 3 records are fully received.
+    case tls_records_complete(B, 3) of
+        true  -> {error, tls_domain_forwarding};
+        false -> incomplete
+    end;
+parse_server_hello(<<16#15, _/binary>>) ->
+    %% Received a TLS alert: proxy rejected the ClientHello
+    {error, tls_alert};
+parse_server_hello(_) ->
+    %% Unknown content — not an MTProto proxy ServerHello
+    {error, not_proxy_response}.
 
--endif.
+%% Returns true when the binary contains at least N complete TLS records.
+-spec tls_records_complete(binary(), non_neg_integer()) -> boolean().
+tls_records_complete(_B, 0) ->
+    true;
+tls_records_complete(<<_T, _Mj, _Mn, Len:?u16, Rest/binary>>, N) when byte_size(Rest) >= Len ->
+    <<_:Len/binary, Tail/binary>> = Rest,
+    tls_records_complete(Tail, N - 1);
+tls_records_complete(_B, _N) ->
+    false.
 
 %% Data stream codec
 

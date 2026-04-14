@@ -51,14 +51,6 @@ connect(Host, Port, Seed, Secret, DcId, Protocol0) ->
                 %% TODO: if Tail is not empty, use codec:push_back(first, ..)
                 {_HS, _CC, _D, <<>>} = mtp_fake_tls:parse_server_hello(ServerHello),
                 {mtp_secure, true, mtp_fake_tls:new()};
-            {mtp_fake_tls, Domain, TlsPacketLen} ->
-                ClientHello = mtp_fake_tls:make_client_hello(Secret, Domain, TlsPacketLen),
-                ok = gen_tcp:send(Sock, ClientHello),
-                %% Let's hope whole server hello will arrive in a single chunk
-                {ok, ServerHello} = gen_tcp:recv(Sock, 0, 5000),
-                %% TODO: if Tail is not empty, use codec:push_back(first, ..)
-                {_HS, _CC, _D, <<>>} = mtp_fake_tls:parse_server_hello(ServerHello),
-                {mtp_secure, true, mtp_fake_tls:new()};
             _ -> {Protocol0, false, undefined}
         end,
     {Header0, _, _, CryptoLayer} = mtp_obfuscated:client_create(Seed, Secret, Protocol, DcId),
